@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.dist-staging-*/
+.DS_Store
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*

@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Snap — Live Disappearance",
+  "version": "0.1.0",
+  "description": "A local-first person disappearance effect for Google Meet camera video.",
+  "minimum_chrome_version": "111",
+  "permissions": ["storage"],
+  "host_permissions": ["https://meet.google.com/*"],
+  "action": {
+    "default_title": "Snap",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "commands": {
+    "toggle-disappearance": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+X",
+        "mac": "MacCtrl+Shift+X"
+      },
+      "description": "Toggle Snap disappearance in the active Google Meet tab"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["page-bridge.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["models/*", "wasm/*"],
+      "matches": ["https://meet.google.com/*"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' data: blob:"
+  }
+}

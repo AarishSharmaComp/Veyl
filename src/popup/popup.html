@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>Snap</title>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div class="brand-mark" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        <div>
+          <div class="eyebrow">VEYL LABS</div>
+          <h1>Snap</h1>
+          <div class="tagline">Present, not visible.</div>
+        </div>
+        <div class="header-status" id="header-status"><span class="status-dot"></span><span>Offline</span></div>
+      </header>
+
+      <section class="hero-panel">
+        <div class="hero-copy">
+          <span class="section-kicker">LIVE CAMERA EFFECT</span>
+          <h2 id="hero-title">Ready when you are.</h2>
+          <p id="hero-subtitle">Open a Google Meet call to route your camera through Snap.</p>
+        </div>
+        <button class="disappear-button" id="toggle-effect" type="button" disabled>
+          <span class="button-icon" aria-hidden="true">✦</span>
+          <span id="toggle-label">Disappear</span>
+          <span class="shortcut-hint">⌘ ⇧ X</span>
+        </button>
+      </section>
+
+      <section class="status-card" aria-label="Camera status">
+        <div class="card-heading"><span>System status</span><span class="live-pill" id="processing-pill">IDLE</span></div>
+        <div class="status-grid">
+          <div class="status-item"><span class="status-icon" id="meet-icon">○</span><span>Google Meet</span><strong id="meet-status">Not detected</strong></div>
+          <div class="status-item"><span class="status-icon" id="camera-icon">○</span><span>Camera</span><strong id="camera-status">Waiting</strong></div>
+          <div class="status-item"><span class="status-icon" id="model-icon">○</span><span>Segmentation</span><strong id="model-status">Loading on demand</strong></div>
+          <div class="status-item"><span class="status-icon" id="effect-icon">○</span><span>Effect</span><strong id="effect-status">Inactive</strong></div>
+        </div>
+        <p class="status-message" id="status-message">Snap only runs on meet.google.com.</p>
+      </section>
+
+      <section class="panel background-panel">
+        <div class="panel-heading">
+          <div><span class="section-kicker">MODE A</span><h3>Background plate</h3></div>
+          <span class="mini-badge" id="background-badge">MISSING</span>
+        </div>
+        <p class="panel-help">Step out of frame, then capture the empty room. A fixed camera gives the cleanest vanishing effect.</p>
+        <div class="background-preview" id="background-preview">
+          <div class="preview-placeholder"><span>▧</span><span>No background captured</span></div>
+          <img id="background-image" alt="Captured room background" hidden />
+        </div>
+        <div class="button-row">
+          <button class="secondary-button" id="capture-background" type="button" disabled>Capture background</button>
+          <button class="icon-button" id="delete-background" type="button" aria-label="Delete background" title="Delete background" disabled>×</button>
+        </div>
+      </section>
+
+      <section class="panel settings-panel">
+        <div class="panel-heading"><div><span class="section-kicker">CONTROL ROOM</span><h3>Effect settings</h3></div></div>
+        <label class="setting-row"><span><strong>Real-time removal</strong><small>Track your silhouette while you move</small></span><input class="switch" id="realtime-toggle" type="checkbox" /><span class="switch-visual"></span></label>
+        <label class="setting-row"><span><strong>Use background plate</strong><small>Fill pixels blocked by your body</small></span><input class="switch" id="plate-toggle" type="checkbox" /><span class="switch-visual"></span></label>
+        <label class="setting-row"><span><strong>Disintegration animation</strong><small>Particles and a subtle shockwave</small></span><input class="switch" id="animation-toggle" type="checkbox" /><span class="switch-visual"></span></label>
+        <div class="range-row"><div><strong>Animation intensity</strong><output id="intensity-value">70%</output></div><input id="intensity-slider" type="range" min="0" max="100" step="1" /></div>
+        <div class="select-row"><label for="performance-select"><strong>Performance mode</strong><small>Quality trades a little latency for softer edges</small></label><select id="performance-select"><option value="quality">Quality</option><option value="balanced">Balanced</option><option value="performance">Performance</option></select></div>
+        <div class="setting-row snap-setting"><span><strong>Finger snap detection</strong><small>Needs microphone permission; audio stays local</small></span><input class="switch" id="snap-toggle" type="checkbox" /><span class="switch-visual"></span></div>
+        <div class="range-row snap-range"><div><strong>Snap sensitivity</strong><output id="sensitivity-value">62%</output></div><input id="sensitivity-slider" type="range" min="0" max="100" step="1" /></div>
+      </section>
+
+      <section class="instructions">
+        <div class="instructions-title"><span>✧</span><h3>Quick start</h3></div>
+        <ol><li>Open Google Meet and turn your camera on.</li><li>Move away and capture a clean background.</li><li>Toggle real-time removal for moving poses.</li><li>Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> to vanish.</li></ol>
+        <p class="privacy-note"><span>◉</span> Camera frames, masks, and optional snap audio are processed locally. Nothing is uploaded or recorded.</p>
+      </section>
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

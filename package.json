@@ -1,0 +1,21 @@
+{
+  "name": "snap-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first Google Meet camera disappearance effect Chrome extension",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.22"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.3"
+  }
+}
