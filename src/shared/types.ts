@@ -1,6 +1,6 @@
 export type PerformanceMode = 'quality' | 'balanced' | 'performance';
 export type CameraRoute = 'waiting' | 'original' | 'processed' | 'outbound';
-export type GestureStatusState = 'idle' | 'pinched' | 'cooldown';
+export type GestureStatusState = 'idle' | 'pinched' | 'fist' | 'cooldown';
 
 export interface VeylSettings {
   realTimeRemoval: boolean;
@@ -64,6 +64,20 @@ export interface PipelineStatus {
   gestureState: GestureStatusState;
   gestureCandidate: boolean;
   gestureReleaseVelocity: number;
+  gestureReason: string;
+  gesturePinchDistance: number | null;
+  gestureFistScore: number | null;
+  gestureDistanceDelta: number | null;
+  gestureMiddleRadius: number | null;
+  gestureMiddleRadiusDelta: number | null;
+  gestureSampleGapMs: number | null;
+  gestureContactFrames: number;
+  gestureReleaseFrames: number;
+  gestureCooldownRemainingMs: number;
+  gestureLandmarksUsable: boolean;
+  handInferenceHz: number;
+  handInferenceInFlight: boolean;
+  lastGestureApplied: boolean | null;
   handInferenceMs: number;
   handInferenceOffloaded: boolean;
   handInferenceOffloadError: string | null;
@@ -172,6 +186,20 @@ export const DEFAULT_STATUS: PipelineStatus = {
   gestureState: 'idle',
   gestureCandidate: false,
   gestureReleaseVelocity: 0,
+  gestureReason: 'waiting-for-hand',
+  gesturePinchDistance: null,
+  gestureFistScore: null,
+  gestureDistanceDelta: null,
+  gestureMiddleRadius: null,
+  gestureMiddleRadiusDelta: null,
+  gestureSampleGapMs: null,
+  gestureContactFrames: 0,
+  gestureReleaseFrames: 0,
+  gestureCooldownRemainingMs: 0,
+  gestureLandmarksUsable: false,
+  handInferenceHz: 0,
+  handInferenceInFlight: false,
+  lastGestureApplied: null,
   handInferenceMs: 0,
   handInferenceOffloaded: false,
   handInferenceOffloadError: null,

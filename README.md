@@ -22,12 +22,13 @@ sender, and documents the remaining browser-level verification honestly.
 - Clean background capture, local preview, recapture, deletion, and mismatch
   warnings.
 - Canvas compositing and a processed `CanvasCaptureMediaStreamTrack`.
-- Disappearance and reappearance transitions with optional particles and
-  shockwave effects.
+- Mask-scoped cinematic disappearance: progressive pixelation, deterministic
+  fine-grained shattering fragments, and current-frame reappearance.
 - Keyboard shortcut: `Ctrl`/`⌘` + `Shift` + `X`.
 - Camera-based visual hand gesture trigger using local MediaPipe Hand Landmarker
-  inference, with transferable `ImageBitmap` worker offload when the host page
-  permits it. Veyl does **not** request microphone access for this feature.
+  inference, with thumb–middle snap and closed-fist gestures plus transferable
+  `ImageBitmap` worker offload when the host page permits it. Veyl does **not**
+  request microphone access for this feature.
 - Dark, compact Veyl popup with site management and camera status.
 - No camera-frame, mask, hand-landmark, background, or audio uploads.
 
@@ -98,6 +99,11 @@ the packaged worker from its exact extension URL; the bootstrap applies the same
 exact-origin policy to the local MediaPipe WASM loader. If a browser blocks the
 worker path, Veyl falls back to the local main-thread detector and reports the
 offload error instead of weakening Trusted Types.
+
+The first worker inference can include a one-time MediaPipe warm-up delay; it is
+performed without blocking the camera render loop. Later requests use a bounded
+response timeout. If the worker stops responding, Veyl rejects the pending frame,
+records the failure, and resumes with the local main-thread detector.
 
 The real browser regression can be run against the existing synthetic WebRTC
 smoke fixture with Trusted Types enforcement enabled:
@@ -175,7 +181,8 @@ the extension.
 1. Turn on the website camera.
 2. Keep the camera fixed and move out of frame.
 3. Press **Capture background**.
-4. Enable **Real-time removal** for a moving person mask.
+4. Keep **Real-time removal** enabled for continuous background replacement, or
+   leave it disabled if you only want segmentation available for the effect.
 5. Press **Disappear** or `Ctrl`/`⌘` + `Shift` + `X`.
 6. Press the same control again to **Reappear**.
 
@@ -188,9 +195,23 @@ Camera movement, changed crop/aspect ratio, moving objects, and lighting
 changes can produce a background mismatch warning. Recapture the plate after
 the camera position changes.
 
+The **Real-time removal** setting controls only the live compositing operation:
+
+- When it is disabled, the visible normal-mode frame is redrawn directly from
+  the source camera. Segmentation may continue updating a separate person mask,
+  but it does not touch the visible frame.
+- When it is enabled and a usable plate is available, the live compositor uses
+  the person mask to keep the person from being covered while replacing the
+  background. If no usable plate is available, the live frame remains visible
+  rather than claiming a reconstruction.
+- In disabled normal mode, **Disappear** uses the latest valid mask only for
+  the fine-grained fragment animation and resolves to the captured plate. The
+  next **Reappear** uses a current live-frame snapshot and returns to the source
+  camera when complete.
+
 ## Camera-based gesture trigger
 
-The optional **Camera snap trigger** uses the existing local camera source
+The optional **Camera gesture trigger** uses the existing local camera source
 video and a bundled MediaPipe Hand Landmarker model. It watches a short
 temporal sequence, not just a static pinch or arbitrary finger separation:
 
@@ -201,20 +222,40 @@ temporal sequence, not just a static pinch or arbitrary finger separation:
 4. A second released frame confirms the motion, then Veyl toggles once and
    enters cooldown. A fresh stable contact is required to rearm.
 
+Alternatively, hold a closed fist steadily for a short dwell. A fist confirms
+once, enters the same cooldown and disappearance path, and stays latched until
+an open hand is observed. Snap and fist recognition share the same worker,
+state-machine timing, debounce, and `CameraPipeline.toggleEffect()` route.
+
 This is a visual approximation of a finger snap. It does not detect the sound
 of a snap. It is deliberately not a static one-frame pose classifier, and it
 can still produce false positives or misses in low light, with occlusion,
 fast motion, or unusual camera angles.
 
 Distances are normalized by palm size and video aspect ratio; motion uses actual
-timestamps. Filters reject sudden appearance, low confidence, malformed data,
-landmark gaps, slow opening, thumb-only movement, whole-hand translation/zoom,
-and hand-identity changes. These are tested heuristics, not measured claims of
-physical snap accuracy across people or cameras.
+timestamps. Filters reject sudden appearance, low-confidence synthetic inputs,
+malformed data, slow opening, thumb-only movement, whole-hand translation/zoom,
+and hand-identity changes. One short detector dropout after contact has begun is
+diagnostically tolerated, while repeated dropouts reset the sequence. These are
+tested heuristics, not measured claims of physical snap accuracy across people
+or cameras.
+
+The popup reports the latest normalized pinch distance, fist-fold score, middle
+finger motion, release velocity, effective hand-inference frequency, recognition
+state, and rejection reason. For controlled development logging, open DevTools
+on the page and run:
+
+```js
+globalThis.__VEYL_DEBUG_GESTURES = true
+```
+
+Logging is disabled by default, emits only decision/reason changes rather than
+every frame, and never includes camera pixels or raw landmarks in the bridge.
 
 The controls are:
 
-- **Camera snap trigger** — explicitly opt in or out (off by default).
+- **Camera gesture trigger** — explicitly opt in or out (off by default); it
+  recognizes both the snap sequence and a held closed fist.
 - **Snap sensitivity** — higher sensitivity allows looser contact and smaller,
   slower inward motion, while still requiring the temporal sequence.
 - **Gesture cooldown** — prevents a held or repeated gesture from toggling
@@ -224,6 +265,34 @@ No microphone permission is requested for this feature. Veyl does not create
 an `AudioContext`, analyze microphone samples, or record audio for gestures.
 Manual button and keyboard controls remain available if hand tracking fails.
 Legacy microphone-trigger consent does not automatically enable this feature.
+
+## Cinematic pixelation and shatter
+
+When animations are enabled, the existing processed camera canvas now renders a
+mask-scoped transition rather than a whole-preview opacity fade:
+
+1. The current person-mask region progressively pixelates using a reusable
+   reduced-resolution `ImageData` buffer.
+2. The captured subject snapshot divides into hundreds or thousands of small,
+   deterministic mask-derived tiles whose varied trajectories disperse outward
+   and fade. Tiles are composited through a reusable fragment buffer rather than
+   issuing one output-canvas draw per tile.
+3. The plate/fallback compositor reaches the stable hidden state.
+4. Reappear captures the current live subject and reconstructs it from inward
+   fragments while the base compositor returns to the current live frame.
+
+Fragments are generated only from a recent valid person mask and are reset on
+camera switches, resolution changes, model invalidation, suspension, and
+frame-error recovery. Segmentation remains available for effect capture even
+when normal real-time removal compositing is disabled. If segmentation is
+unavailable, Veyl keeps its existing honest live, blurred, or captured-plate
+fallback; it does not invent a subject region or claim perfect reconstruction.
+Disabling Veyl still restores the website-owned camera path immediately.
+
+At the end of shattering, the pixel layer fades to zero before the terminal
+state. The terminal normal-mode frame skips the live source entirely, clears
+the output, and draws the captured plate as the authoritative full frame, so a
+stale fragment or semi-transparent pixel layer cannot remain over the plate.
 
 ## Permissions and privacy
 
@@ -345,7 +414,14 @@ npm test
 - real model-wrapper cancellation, late GPU/CPU tasks, reusable mask storage,
   malformed masks, and cleanup after errors;
 - temporal gesture positives/false-positive boundaries and actual pipeline
-  effect activation;
+  effect activation, including the closed-fist latch/rearm path;
+- gesture diagnostics, bounded tracking dropouts, worker failure recovery, and
+  effective inference scheduling;
+- pixelation/shatter timing, mask-scoped fragments, reappearance cleanup,
+  terminal-input handling, same-size mask reset behavior, and segmentation
+  availability when normal removal compositing is off;
+- normal source-camera passthrough, live-removal compositing, runtime removal
+  toggles, captured-plate disappearance, and stale-mask handling;
 - Trusted Types loader transformation, exact URL policy boundaries, worker URL
   branding, and hand-detector lifecycle cleanup;
 - bridge command failures, origin/session rejection, repeated injection/BFCache;
@@ -368,6 +444,32 @@ VEYL_TRUSTED_TYPES=1 npm run test:hand-lab
 The lab input must be treated as test evidence only. An illustration or local
 image does not prove physical-camera snap accuracy or live Meet/OmeTV output.
 
+### Standalone camera gesture lab
+
+This interactive lab serves a local page without loading the extension. It uses
+the production `HandGestureDetector`, the bundled model/WASM from `dist/`, and a
+camera-only `getUserMedia` request. It displays the current hand state, normalized
+measurements, contact/release frame counts, inference time, and the exact latest
+decision reason:
+
+```sh
+npm run build
+BROWSER_BIN="/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" \
+npm run test:gesture-lab
+```
+
+Allow camera access for the local page when Chrome/Brave asks. The command keeps
+the visible browser lab open until you press `Ctrl+C`; it uses a disposable
+browser profile and removes it on exit. For deterministic synthetic sequences,
+run the production state-machine tests directly:
+
+```sh
+node --test tests/gesture-state-machine.test.mjs
+```
+
+Synthetic sequences validate temporal rules only. They do not establish
+real-camera recognition accuracy.
+
 ### Optional real-browser synthetic smoke
 
 Build first, then provide an absolute browser executable path:
@@ -386,13 +488,45 @@ The runner uses a disposable browser profile, synthetic camera, no microphone,
 a loopback HTTP fixture and real local WebRTC peers. It verifies the loaded
 extension identity, explicit-port registration acceptance, both bundled models
 ready, hand inference (including worker offload when available), a replacement
-plate decoded by the receiving peer, reappearance, and native sender restoration.
+or graceful-fallback output decoded by the receiving peer, reappearance, and
+native sender restoration. The fixture intentionally exercises the
+normal-removal-off path; if its captured plate mismatches the synthetic camera,
+the test expects the safe fallback rather than a falsely accepted plate.
 It leaves personal browser profiles untouched.
 
 **Boundary:** the fixture directly injects/authorizes the production page
 bridge. It does not automate popup permission prompts or the actual isolated
 content-script/worker activation path. It is not a Meet/OmeTV call, physical
 snap-accuracy test, person-mask-quality test, or performance benchmark.
+
+### Manual visual/effect acceptance
+
+Use the standalone gesture lab first so recognition can be separated from site
+integration:
+
+1. Start `npm run test:gesture-lab` and allow camera-only access.
+2. Keep one hand fully inside the preview with the palm reasonably steady.
+3. Watch `handTracked`, `reason`, `pinchDistance`, `distanceDelta`,
+   `middleRadiusDelta`, `releaseVelocity`, and the sample frequency.
+4. Hold thumb and middle fingertip together for the contact sequence, then make
+   a quick inward middle-finger curl. Confirm that `confirmed` changes once.
+5. Hold a closed fist for the stable dwell, confirm one toggle, keep holding
+   through cooldown, then open the hand and confirm that a later fist can
+   rearm. Record the displayed fist score and rejection reason.
+6. Repeat with a held snap pose, slow separation, whole-hand movement, a brief
+   hand dropout, a slightly rotated hand, and two deliberate snaps separated by
+   the configured cooldown. Record the displayed rejection reason rather than
+   changing thresholds blindly.
+7. In Meet, confirm the same snap or fist changes the existing effect once. Press
+   **Reappear** and verify that the restored subject is the current live image.
+8. With animations enabled, observe visible pixelation followed by fine-grained
+   mask-shaped fragments;
+   repeat disappear/reappear cycles and verify there are no stale fragments.
+9. Disable Veyl during either transition and verify immediate original-camera
+   restoration and unchanged microphone behavior.
+
+The lab and synthetic browser checks do not replace this physical-camera visual
+acceptance test.
 
 ## Manual Google Meet test
 
@@ -407,8 +541,9 @@ Use a second Meet participant or a second device watching the call:
 5. Capture an empty-room background and test disappearance/reappearance.
 6. Enable the camera gesture trigger and verify no microphone permission
    prompt appears.
-7. Test thumb–middle contact plus quick inward curl, static holds, cooldown, both hands,
-   partial occlusion, low light, and different distances.
+7. Test thumb–middle contact plus quick inward curl, a held closed fist with
+   open-hand rearm, static holds, cooldown, both hands, partial occlusion, low
+   light, and different distances.
 8. Turn the camera off and on, switch cameras, leave/rejoin, reload the tab,
    and reload the extension.
 9. Confirm the normal microphone remains usable throughout.
@@ -470,9 +605,10 @@ frame or every website.
 - **Google Meet no longer connects:** reload the Meet tab after reloading the
   extension, then turn the camera off and on once.
 - **The gesture does not trigger:** enable the camera gesture control, show a
-  single steady hand, touch thumb to middle fingertip, curl the middle finger
-  quickly toward the palm, adjust sensitivity, and wait
-  for the cooldown. Manual controls still work.
+  single steady hand, then either complete the thumb-to-middle snap sequence or
+  hold a closed fist through the dwell. Open the hand after a fist, adjust
+  sensitivity only after checking the displayed score/reason, and wait for the
+  cooldown. Manual controls still work.
 - **No microphone prompt appears:** this is expected. Camera gesture detection
   intentionally does not use microphone access.
 - **The segmentation model fails:** Veyl can still use a captured plate. Check
@@ -487,6 +623,9 @@ frame or every website.
 
 - A camera-based visual gesture cannot hear or verify the sound of a physical
   finger snap; it uses a temporal contact/inward-curl heuristic as a local approximation.
+- Closed-fist recognition is also a normalized visual heuristic. It requires a
+  stable folded-finger pose and an open-hand rearm, but still needs physical
+  camera testing across lighting, occlusion, hand orientation, and distance.
 - Person segmentation cannot reconstruct scenery that the person blocks
   without a suitable background plate.
 - Sites may cache camera APIs, use custom media pipelines, or run camera code

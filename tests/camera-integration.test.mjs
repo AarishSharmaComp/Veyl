@@ -50,12 +50,27 @@ const bundled = await build({
             if (this.state.segmentError) throw new Error('bad segmentation frame');
             return this.state.invalidMask ? { width: 2, height: 1, data: new Float32Array([1]) } : { width: 1, height: 1, data: new Float32Array([1]) };
           }
-          detect(video) {
-            this.state.inferences.hand++;
-            this.state.handSources.push(video.srcObject.getVideoTracks()[0].id);
-            if (this.state.handError) throw new Error('bad hand frame');
-            return { handTracked: true, confirmed: this.state.confirmGesture === true };
-          }
+           detect(video) {
+             this.state.inferences.hand++;
+             this.state.handSources.push(video.srcObject.getVideoTracks()[0].id);
+             if (this.state.handError) throw new Error('bad hand frame');
+             const confirmed = this.state.confirmGesture === true;
+             const kind = this.state.confirmGestureKind === 'fist' ? 'fist' : 'snap';
+             return {
+               state: this.state.confirmGestureKind === 'fist' ? 'fist' : 'idle',
+               handTracked: true, candidate: false, confirmed,
+               ...(confirmed ? { confirmedGesture: kind } : {}),
+               pinchDistance: null, releaseVelocity: 0,
+               diagnostics: {
+                 phase: 'idle', reason: confirmed ? 'confirmed-' + kind : 'test-result',
+                 pinchDistance: null, distanceDelta: null, middleRadius: null,
+                 middleRadiusDelta: null, releaseVelocity: 0, sampleGapMs: 40,
+                 contactFrames: 0, releaseFrames: 0, cooldownRemainingMs: 0,
+                 landmarksUsable: true, trackingQuality: 'model-thresholded',
+                 fistScore: this.state.confirmGestureKind === 'fist' ? 0.8 : null
+               }
+             };
+           }
         }` };
       });
     }
@@ -89,7 +104,8 @@ function environment(t, overrides = {}) {
       live: { segment: 0, hand: 0 }, maxLive: { segment: 0, hand: 0 },
       inFlight: { segment: 0, hand: 0 }, maxInFlight: { segment: 0, hand: 0 },
       inferences: { segment: 0, hand: 0 }, resets: { segment: 0, hand: 0 },
-      gates: {}, handSources: [], segmentError: false, handError: false
+       gates: {}, handSources: [], segmentError: false, handError: false,
+       confirmGestureKind: null
     }
   };
 
@@ -272,6 +288,18 @@ function environment(t, overrides = {}) {
     }
   });
   return env;
+}
+
+function installTestPlate(pipeline, source = { plate: true }) {
+  const manager = pipeline.backgroundManager;
+  manager.plate = { dataUrl: 'data:image/png;base64,test', width: 640, height: 480, capturedAt: Date.now() };
+  manager.image = { complete: true, naturalWidth: 640, naturalHeight: 480 };
+  let draws = 0;
+  manager.drawCover = (context) => {
+    draws += 1;
+    context.drawImage(source);
+  };
+  return { source, get draws() { return draws; } };
 }
 
 test('one capture source survives acquisitions; output stop/clone leases preserve exact audio and fallback', async (t) => {
@@ -809,6 +837,19 @@ test('an ended original restores a sender to null while other live acquisitions 
   assert.equal(first.audio.stopCalls + second.audio.stopCalls, 0);
 });
 
+test('a terminal input ends its processed lease instead of sending indefinite black frames', async (t) => {
+  const env = environment(t);
+  const camera = env.camera();
+  const returned = await env.pipeline.attach(camera.stream);
+  const output = returned.getVideoTracks()[0];
+  camera.video.end();
+  await env.tick(1000);
+  assert.equal(output.readyState, 'ended');
+  assert.equal(env.captures[0].track.readyState, 'ended');
+  assert.equal(camera.audio.stopCalls, 0);
+  assert.equal(env.pipeline.currentStatus.cameraRoute, 'waiting');
+});
+
 test('usable frame readiness is required, play itself is bounded, and a failed acquisition preserves audio and earlier outputs', async (t) => {
   const env = environment(t);
   env.playHangs = true;
@@ -879,6 +920,164 @@ test('hand errors preserve segmentation while segmentation errors use a live fal
   assert.equal(camera.audio.stopCalls, 0);
 });
 
+test('segmentation stays available for disappearance when normal removal compositing is disabled', async (t) => {
+  const env = environment(t, { realTimeRemoval: false, gestureDetection: false, animations: false });
+  await env.pipeline.setAssetBaseUrl('https://extension.test/');
+  const camera = env.camera(false);
+  await env.pipeline.attach(camera.stream);
+  await flush();
+  const start = Math.ceil(performance.now()) + 1000;
+  await env.tick(start);
+  const maskCanvas = env.canvases[2];
+  assert.equal(env.pipeline.currentStatus.modelReady, true);
+  assert.equal(env.models.loads.segment, 1);
+  assert.equal(env.models.inferences.segment, 1);
+  assert.equal(env.pipeline.toggleEffect(), true);
+  assert.ok(maskCanvas.maskWrites > 0, 'the current person mask is available when removal compositing is off');
+  await env.tick(start + 100);
+  assert.ok(maskCanvas.maskWrites > 0, 'the effect can consume the segmentation mask after activation');
+  assert.equal(env.pipeline.currentStatus.effectActive, true);
+  assert.equal(camera.audio, null);
+});
+
+test('normal mode keeps the original live frame untouched while segmentation updates separately', async (t) => {
+  const env = environment(t, { realTimeRemoval: false, useBackgroundPlate: true, gestureDetection: false });
+  await env.pipeline.setAssetBaseUrl('https://extension.test/');
+  const camera = env.camera(false);
+  await env.pipeline.attach(camera.stream);
+  await flush();
+  const start = Math.ceil(performance.now()) + 1000;
+  await env.tick(start);
+  const canvas = env.captures[0].canvas;
+  const maskCanvas = env.canvases[2];
+  assert.equal(env.models.inferences.segment, 1);
+  assert.equal(maskCanvas.maskWrites, 0, 'normal passthrough does not apply the person mask to the visible canvas');
+  assert.equal(canvas.draws.at(-1).source, camera.video);
+  assert.equal(canvas.draws.at(-1).filter, 'none');
+});
+
+test('runtime removal toggles change only compositing while segmentation continues', async (t) => {
+  const env = environment(t, { realTimeRemoval: true, useBackgroundPlate: true, gestureDetection: false });
+  const plate = installTestPlate(env.pipeline);
+  await env.pipeline.setAssetBaseUrl('https://extension.test/');
+  const camera = env.camera(false);
+  await env.pipeline.attach(camera.stream);
+  await flush();
+  const start = Math.ceil(performance.now()) + 1000;
+  await env.tick(start);
+  const canvas = env.captures[0].canvas;
+  const maskCanvas = env.canvases[2];
+  const enabledPlateDraws = plate.draws;
+  const enabledMaskWrites = maskCanvas.maskWrites;
+  assert.ok(enabledPlateDraws > 0, 'enabled removal composites the captured background');
+  assert.ok(enabledMaskWrites > 0, 'enabled removal publishes the smoothed person mask to the compositor');
+
+  await env.pipeline.setSettings({ ...settings, realTimeRemoval: false, useBackgroundPlate: true });
+  await env.tick(start + 100);
+  assert.equal(canvas.draws.at(-1).source, camera.video);
+  assert.equal(canvas.draws.at(-1).filter, 'none');
+  assert.equal(maskCanvas.maskWrites, enabledMaskWrites, 'disabled removal does not apply a new mask to the visible canvas');
+  assert.ok(env.models.inferences.segment > 1, 'segmentation continues while removal is disabled');
+
+  await env.pipeline.setSettings({ ...settings, realTimeRemoval: true, useBackgroundPlate: true });
+  await env.tick(start + 200);
+  assert.ok(plate.draws > enabledPlateDraws, 'enabling removal resumes background compositing');
+  assert.ok(maskCanvas.maskWrites > enabledMaskWrites, 'enabling removal resumes mask compositing');
+});
+
+test('normal-mode disappearance resolves to the captured plate and reappearance restores live video', async (t) => {
+  const env = environment(t, { realTimeRemoval: false, useBackgroundPlate: true, gestureDetection: false, animations: false });
+  const plate = installTestPlate(env.pipeline);
+  await env.pipeline.setAssetBaseUrl('https://extension.test/');
+  const camera = env.camera(false);
+  await env.pipeline.attach(camera.stream);
+  await flush();
+  const start = Math.ceil(performance.now()) + 1000;
+  await env.tick(start);
+  assert.equal(env.pipeline.toggleEffect(), true);
+  await env.tick(start + 100);
+  assert.equal(env.pipeline.currentStatus.effectActive, true);
+  assert.equal(env.captures[0].canvas.draws.at(-1).source, plate.source, 'stable normal-mode disappearance uses the captured plate');
+
+  await new Promise((resolve) => setTimeout(resolve, 410));
+  assert.equal(env.pipeline.toggleEffect(), true);
+  await env.tick(start + 200);
+  assert.equal(env.pipeline.currentStatus.effectActive, false);
+  assert.equal(env.captures[0].canvas.draws.at(-1).source, camera.video, 'reappearance returns to the original live source');
+});
+
+test('a later segmentation frame cannot add person pixels after normal disappearance reaches its terminal plate state', async (t) => {
+  const env = environment(t, { realTimeRemoval: false, useBackgroundPlate: true, gestureDetection: false, animations: false });
+  const plate = installTestPlate(env.pipeline);
+  await env.pipeline.setAssetBaseUrl('https://extension.test/');
+  const camera = env.camera(false);
+  await env.pipeline.attach(camera.stream);
+  await flush();
+  const start = Math.ceil(performance.now()) + 1000;
+  await env.tick(start);
+  assert.equal(env.pipeline.toggleEffect(), true);
+  await env.tick(start + 100);
+  assert.equal(env.captures[0].canvas.draws.at(-1).source, plate.source);
+  const segmentInferences = env.models.inferences.segment;
+  await env.tick(start + 300);
+  assert.ok(env.models.inferences.segment > segmentInferences, 'a later segmentation result arrived');
+  assert.equal(env.captures[0].canvas.draws.at(-1).source, plate.source, 'the terminal plate remains the only authoritative output');
+});
+
+test('normal-mode animated disappearance leaves no pixel-stage person ghost at completion', async (t) => {
+  const env = environment(t, { realTimeRemoval: false, useBackgroundPlate: true, gestureDetection: false, animations: true, animationIntensity: 0.7 });
+  const plate = installTestPlate(env.pipeline);
+  await env.pipeline.setAssetBaseUrl('https://extension.test/');
+  const camera = env.camera(false);
+  await env.pipeline.attach(camera.stream);
+  await flush();
+  const start = Math.ceil(performance.now()) + 1000;
+  await env.tick(start);
+  assert.equal(env.pipeline.toggleEffect(), true);
+  await new Promise((resolve) => setTimeout(resolve, 820));
+  await env.tick(performance.now());
+  assert.equal(env.captures[0].canvas.draws.at(-1).source, plate.source, 'the completed animation ends on the full captured plate');
+  assert.equal(env.captures[0].canvas.draws.at(-1).filter, 'none');
+});
+
+test('terminal normal-mode compositor output does not draw the source frame or a stale animation layer', (t) => {
+  const env = environment(t);
+  const compositor = new Compositor(); compositor.resize(640, 480);
+  const camera = { camera: true };
+  const plate = { plate: true };
+  const background = { ready: true, drawCover(context) { context.drawImage(plate); } };
+  const mask = { data: new Float32Array([1]), width: 1, height: 1 };
+  compositor.render(camera, background, mask, {
+    hidden: true,
+    transitionStrength: 1,
+    realTimeRemoval: false,
+    useBackgroundPlate: true,
+    effectState: 'disappeared'
+  });
+  assert.deepEqual(compositor.canvas.draws.map((draw) => draw.source), [plate]);
+  const before = compositor.canvas.draws.length;
+  assert.equal(compositor.renderDisintegration(compositor.canvas.getContext('2d'), {
+    state: 'disappeared', progress: 1, visibility: 1, pixelation: 1, shatter: 1
+  }), false);
+  assert.equal(compositor.canvas.draws.length, before, 'a stale terminal animation callback cannot draw over the plate');
+});
+
+test('a stale mask does not corrupt normal-mode disappearance output', async (t) => {
+  const env = environment(t, { realTimeRemoval: false, useBackgroundPlate: true, gestureDetection: false, animations: false });
+  const plate = installTestPlate(env.pipeline);
+  await env.pipeline.setAssetBaseUrl('https://extension.test/');
+  const camera = env.camera(false);
+  await env.pipeline.attach(camera.stream);
+  await flush();
+  const start = Math.ceil(performance.now()) + 1000;
+  await env.tick(start);
+  env.pipeline.latestMaskAt = -Infinity;
+  assert.equal(env.pipeline.toggleEffect(), true);
+  await env.tick(start + 100);
+  assert.equal(env.captures[0].canvas.draws.at(-1).source, plate.source);
+  assert.equal(env.pipeline.currentStatus.effectActive, true);
+});
+
 test('a confirmed local camera gesture toggles the real pipeline effect without microphone access', async (t) => {
   const env = environment(t, { gestureDetection: true });
   await env.pipeline.setAssetBaseUrl('https://extension.test/');
@@ -891,25 +1090,78 @@ test('a confirmed local camera gesture toggles the real pipeline effect without 
   assert.equal(env.calls.length, 0, 'the gesture detector never asks for its own camera or microphone');
 });
 
+test('a confirmed fist uses the same effect toggle path as a snap', async (t) => {
+  const env = environment(t, { gestureDetection: true });
+  await env.pipeline.setAssetBaseUrl('https://extension.test/');
+  const camera = env.camera(false);
+  await env.pipeline.attach(camera.stream); await flush();
+  env.models.confirmGesture = true;
+  env.models.confirmGestureKind = 'fist';
+  await env.tick(Math.ceil(performance.now()) + 1000);
+  assert.equal(env.pipeline.currentStatus.effectActive, true);
+  assert.equal(env.pipeline.currentStatus.gestureState, 'fist');
+  assert.match(env.pipeline.currentStatus.gestureReason, /effect-applied/);
+  assert.ok(env.events.some((event) => event.type === 'GESTURE_DETECTED'));
+});
+
+test('manual disappearance uses the processed canvas for pixelation/shatter and reappearance', async (t) => {
+  const env = environment(t, { realTimeRemoval: true, gestureDetection: false, animations: true, animationIntensity: 0.7 });
+  await env.pipeline.setAssetBaseUrl('https://extension.test/');
+  const camera = env.camera(false);
+  await env.pipeline.attach(camera.stream);
+  await flush();
+  const initial = Math.ceil(performance.now()) + 1000;
+  await env.tick(initial);
+  assert.equal(env.pipeline.toggleEffect(), true);
+  assert.equal(env.pipeline.currentStatus.effectActive, true);
+  assert.equal(env.pipeline.toggleEffect(), false, 'duplicate activation is debounced');
+  await env.tick(initial + 120);
+  await env.tick(initial + 360);
+  await env.tick(initial + 860);
+  assert.equal(env.pipeline.currentStatus.effectActive, true);
+  const effectCanvases = env.canvases.filter((canvas) => canvas.draws.length > 0);
+  assert.ok(effectCanvases.length >= 2, 'subject and pixel buffers participated in the processed render');
+  await new Promise((resolve) => setTimeout(resolve, 410));
+  assert.equal(env.pipeline.toggleEffect(), true);
+  await env.tick(initial + 950);
+  await env.tick(initial + 1400);
+  assert.equal(env.pipeline.currentStatus.effectActive, false);
+  assert.equal(env.captures[0].canvas.draws.at(-1).source, camera.video);
+});
+
 test('a confident person mask is fully opaque on the first frame, not a persistent ghost', (t) => {
   const env = environment(t);
   const compositor = new Compositor(); compositor.resize(640, 480);
-  const [,,maskCanvas] = env.canvases.slice(-3);
   const background = { ready: true, drawCover(context) { context.drawImage({ plate: true }); } };
   const options = { hidden: true, transitionStrength: 1, realTimeRemoval: true, useBackgroundPlate: true };
   compositor.render({}, background, { data: new Float32Array([0.85]), width: 1, height: 1 }, options);
+  const maskCanvas = env.canvases.find((canvas) => canvas.lastMask !== undefined);
   assert.equal(maskCanvas.lastMask[3], 255);
 });
 
 test('empty person mask preserves live regions, and a missing mask uses the plate instead of a black hole', (t) => {
   const env = environment(t);
   const compositor = new Compositor(); compositor.resize(640, 480);
-  const [,,maskCanvas] = env.canvases.slice(-3);
   const plate = { plate: true };
   const background = { ready: true, drawCover(context) { context.drawImage(plate); } };
   const options = { hidden: true, transitionStrength: 1, realTimeRemoval: true, useBackgroundPlate: true };
   compositor.render({}, background, { data: new Float32Array([0]), width: 1, height: 1 }, options);
+  const maskCanvas = env.canvases.find((canvas) => canvas.lastMask !== undefined);
   assert.equal(maskCanvas.lastMask[3], 0);
   compositor.render({}, background, null, options);
   assert.equal(compositor.canvas.draws.at(-1).source, plate);
+});
+
+test('mask reset clears same-size smoothed foreground after a source/model discontinuity', (t) => {
+  const env = environment(t);
+  const compositor = new Compositor(); compositor.resize(640, 480);
+  const background = { ready: true, drawCover(context) { context.drawImage({ plate: true }); } };
+  const options = { hidden: true, transitionStrength: 1, realTimeRemoval: true, useBackgroundPlate: true };
+  const strong = { data: new Float32Array([1]), width: 1, height: 1 };
+  const empty = { data: new Float32Array([0]), width: 1, height: 1 };
+  compositor.render({}, background, strong, options);
+  compositor.resetMask();
+  compositor.render({}, background, empty, options);
+  const maskCanvas = env.canvases.find((canvas) => canvas.lastMask !== undefined);
+  assert.equal(maskCanvas.lastMask[3], 0);
 });

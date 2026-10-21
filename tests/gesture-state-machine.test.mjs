@@ -14,16 +14,24 @@ const HAND = [
 ];
 const RELEASED = [0.03, 0.83, -0.1];
 const CURLED = [0.02, 0.76, -0.1];
+const CLOSED_FIST = new Map([
+  [4, [0.25, 0.72, -0.1]],
+  [6, [-0.45, 1.02, -0.02]], [8, [-0.28, 0.72, -0.02]],
+  [10, [0, 1.08, -0.03]], [12, [0.08, 0.72, -0.04]],
+  [14, [0.28, 1.02, -0.03]], [16, [0.38, 0.73, -0.03]],
+  [18, [0.55, 0.88, -0.02]], [20, [0.48, 0.70, -0.02]]
+]);
 const SENSITIVITY = 0.62;
 const COOLDOWN = 1100;
 
 function sample(timestamp, options = {}) {
   const {
-    middle = HAND[12], thumb = HAND[4], scale = 0.16, shift = [0, 0, 0],
+    middle = HAND[12], thumb = HAND[4], overrides = new Map(), scale = 0.16, shift = [0, 0, 0],
     rotation = 0, aspect = 1, depth = true, confidence = 0.95, handedness
   } = options;
   const landmarks = HAND.map((original, index) => {
-    const [x, y, z] = index === 12 ? middle : index === 4 ? thumb : original;
+    const override = overrides instanceof Map ? overrides.get(index) : overrides[index];
+    const [x, y, z] = override ?? (index === 12 ? middle : index === 4 ? thumb : original);
     const point = {
       x: (0.5 + (x * Math.cos(rotation) - y * Math.sin(rotation) + shift[0]) * scale) / aspect,
       y: 0.75 - (x * Math.sin(rotation) + y * Math.cos(rotation) + shift[1]) * scale
@@ -46,6 +54,10 @@ function snapFrames(start = 0, interval = 40, options = {}) {
   ];
 }
 
+function fistFrames(start = 0, interval = 50, options = {}) {
+  return Array.from({ length: 6 }, (_, index) => sample(start + index * interval, { ...options, overrides: CLOSED_FIST }));
+}
+
 function feed(machine, samples, sensitivity = SENSITIVITY, cooldown = COOLDOWN) {
   return samples.map(frame => machine.update(frame, sensitivity, cooldown));
 }
@@ -64,6 +76,7 @@ test('a stable thumb–middle snap toggles once, requires fresh rearming, and ob
   const machine = new FingerGestureStateMachine();
   const first = feed(machine, snapFrames(), SENSITIVITY, 500);
   assert.deepEqual(first.map(update => update.confirmed), [false, false, false, false, true]);
+  assert.equal(first.at(-1).confirmedGesture, 'snap');
   assert.deepEqual(first.map(update => update.state), ['idle', 'idle', 'pinched', 'pinched', 'cooldown']);
   assert.equal(first[3].releaseVelocity > 0, true);
   assert.equal(first[4].candidate, false);
@@ -76,6 +89,58 @@ test('a stable thumb–middle snap toggles once, requires fresh rearming, and ob
   const rearmed = feed(machine, snapFrames(660), SENSITIVITY, 500);
   assert.deepEqual(rearmed.map(update => update.confirmed), [false, false, false, false, true]);
   assert.equal(confirmations([...first, ...held, ...tooSoon, ...rearmed]), 2);
+});
+
+test('a stable closed fist confirms once and reports the fist gesture kind', () => {
+  const machine = new FingerGestureStateMachine();
+  const updates = feed(machine, fistFrames());
+  assert.equal(confirmations(updates), 1);
+  assert.equal(updates.find(update => update.confirmed)?.confirmedGesture, 'fist');
+  assert.equal(updates.slice(0, -1).some(update => update.state === 'fist'), true);
+  assert.equal(updates.at(-1).state, 'cooldown');
+});
+
+test('holding a fist through cooldown does not retrigger until an open hand is observed', () => {
+  const machine = new FingerGestureStateMachine();
+  const first = feed(machine, fistFrames(), SENSITIVITY, 300);
+  assert.equal(confirmations(first), 1);
+  const held = feed(machine, fistFrames(200), SENSITIVITY, 300);
+  assert.equal(confirmations(held), 0);
+  assert.equal(held.at(-1).state, 'cooldown');
+
+  const opened = feed(machine, [0, 50].map(timestamp => sample(750 + timestamp)), SENSITIVITY, 300);
+  assert.equal(confirmations(opened), 0);
+  const rearmed = feed(machine, fistFrames(900), SENSITIVITY, 300);
+  assert.equal(confirmations(rearmed), 1);
+});
+
+test('fist recognition uses normalized fold geometry across size, aspect, rotation, and handedness', () => {
+  for (const options of [
+    { scale: 0.07 }, { scale: 0.24 }, { aspect: 16 / 9 }, { aspect: 9 / 16, depth: false },
+    { rotation: 0.24 }, { handedness: 'Left' }, { handedness: 'Right' }
+  ]) {
+    const updates = feed(new FingerGestureStateMachine(), fistFrames(0, 50, options));
+    assert.equal(confirmations(updates), 1, JSON.stringify(options));
+  }
+});
+
+test('an open hand, a pinched hand, and partially folded fingers do not confirm a fist', () => {
+  const partial = new Map(CLOSED_FIST);
+  partial.set(8, HAND[8]);
+  partial.set(12, HAND[12]);
+  partial.set(16, HAND[16]);
+  partial.set(20, HAND[20]);
+  const cases = [
+    {},
+    { middle: [0.03, 0.83, -0.1], thumb: [0.04, 0.83, -0.1] },
+    { overrides: partial }
+  ];
+  for (const options of cases) {
+    const machine = new FingerGestureStateMachine();
+    const updates = feed(machine, Array.from({ length: 8 }, (_, index) => sample(index * 50, options)));
+    assert.equal(confirmations(updates), 0);
+    assert.equal(updates.every(update => update.state !== 'fist'), true);
+  }
 });
 
 test('a held released pose does not retrigger even after cooldown expires', () => {
@@ -109,6 +174,38 @@ test('missing hand cancels armed and partially confirmed releases, then permits 
     assert.equal(confirmations(feed(machine, [sample(140, { middle: RELEASED }), sample(180, { middle: CURLED })])), 0);
     assert.equal(confirmations(feed(machine, snapFrames(220))), 1);
   }
+});
+
+test('one short detector dropout preserves an armed sequence, but a second dropout resets it', () => {
+  const machine = new FingerGestureStateMachine();
+  arm(machine);
+  assert.equal(machine.update(sample(120, { middle: RELEASED }), SENSITIVITY, COOLDOWN).confirmed, false);
+  const tolerated = machine.updateMissing(160);
+  assert.equal(tolerated.handTracked, false);
+  assert.equal(machine.diagnostics.reason, 'tracking-gap-tolerated');
+  assert.equal(machine.update(sample(200, { middle: CURLED }), SENSITIVITY, COOLDOWN).confirmed, true);
+
+  const reset = new FingerGestureStateMachine();
+  arm(reset);
+  reset.update(sample(120, { middle: RELEASED }), SENSITIVITY, COOLDOWN);
+  reset.updateMissing(160);
+  reset.updateMissing(200);
+  assert.equal(reset.diagnostics.reason, 'tracking-lost-reset');
+  assert.equal(reset.update(sample(240, { middle: CURLED }), SENSITIVITY, COOLDOWN).confirmed, false);
+});
+
+test('diagnostics expose normalized contact, release motion, and confirmation reason', () => {
+  const machine = new FingerGestureStateMachine();
+  arm(machine);
+  const release = machine.update(sample(120, { middle: RELEASED }), SENSITIVITY, COOLDOWN);
+  assert.equal(release.confirmed, false);
+  assert.equal(machine.diagnostics.landmarksUsable, true);
+  assert.equal(typeof machine.diagnostics.pinchDistance, 'number');
+  assert.equal(typeof machine.diagnostics.distanceDelta, 'number');
+  const confirmed = machine.update(sample(160, { middle: CURLED }), SENSITIVITY, COOLDOWN);
+  assert.equal(confirmed.confirmed, true);
+  assert.equal(machine.diagnostics.reason, 'confirmed');
+  assert.ok(machine.diagnostics.cooldownRemainingMs > 0);
 });
 
 test('hand loss and unreliable frames cannot clear or pre-arm a running cooldown', () => {
@@ -293,6 +390,10 @@ test('palm normalization works at different fixed sizes, aspect ratios, and hand
   ]) {
     assert.equal(confirmations(feed(new FingerGestureStateMachine(), snapFrames(0, 40, options))), 1);
   }
+});
+
+test('a consistent modest hand rotation does not invalidate the snap sequence', () => {
+  assert.equal(confirmations(feed(new FingerGestureStateMachine(), snapFrames(0, 40, { rotation: 0.24 }))), 1);
 });
 
 test('small landmark jitter does not discard a reliable snap', () => {

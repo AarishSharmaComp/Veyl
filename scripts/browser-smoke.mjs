@@ -109,13 +109,19 @@ try {
   const modelState = await page.evaluate('({modelReady:veylSmoke.status.modelReady, handModelReady:veylSmoke.status.gestureDetectionActive, handInferenceOffloaded:veylSmoke.status.handInferenceOffloaded, handInferenceOffloadError:veylSmoke.status.handInferenceOffloadError, handInferenceMs:veylSmoke.status.handInferenceMs, workerType:typeof Worker, imageBitmapType:typeof createImageBitmap, fps:veylSmoke.status.fps})');
 
   await page.evaluate(`window.veylSmoke.configure(${JSON.stringify(baseUrl)},true,false)`);
-  await waitFor(() => page.evaluate('window.veylSmoke.status?.modelReady === false'), 'Plate-only setting');
+  await waitFor(() => page.evaluate('window.veylSmoke.status?.modelReady === true'), 'Segmentation remains available with normal removal compositing off');
   const requestId = await page.evaluate('window.veylSmoke.toggle()');
   await waitFor(() => page.evaluate(`window.veylSmoke.replies.get(${JSON.stringify(requestId)})?.ok`), 'Disappear command');
+  let hiddenOutputMode = 'unknown';
   const hiddenPixel = await waitFor(async () => {
-    const pixel = await page.evaluate('window.veylSmoke.pixel()');
-    return Math.abs(pixel[0] - 192) < 18 && Math.abs(pixel[1] - 32) < 18 && Math.abs(pixel[2] - 64) < 18 && pixel;
-  }, 'Replacement plate received by remote peer');
+    const evidence = await page.evaluate('({pixel:window.veylSmoke.pixel(), mismatch:Boolean(window.veylSmoke.status?.backgroundMismatch)})');
+    const pixel = evidence.pixel;
+    const plateMatch = Math.abs(pixel[0] - 192) < 18 && Math.abs(pixel[1] - 32) < 18 && Math.abs(pixel[2] - 64) < 18;
+    const safeFallback = pixel[3] === 255 && Math.max(pixel[0], pixel[1], pixel[2]) > 8;
+    if (evidence.mismatch && safeFallback) hiddenOutputMode = 'graceful-fallback';
+    if (!evidence.mismatch && plateMatch) hiddenOutputMode = 'background-plate';
+    return ((evidence.mismatch ? safeFallback : plateMatch) && pixel);
+  }, 'Hidden output received by remote peer');
   await new Promise((resolve) => setTimeout(resolve, 650));
   const appearId = await page.evaluate('window.veylSmoke.toggle()');
   await waitFor(() => page.evaluate(`window.veylSmoke.replies.get(${JSON.stringify(appearId)})?.ok`), 'Reappear command');
@@ -129,7 +135,7 @@ try {
   await page.evaluate('window.veylSmoke.stop()');
   console.log(JSON.stringify({ browser: version.product, evidence: 'Synthetic local WebRTC loopback, NOT a Meet/OmeTV call',
     trustedTypesEnforced, manifestName: manifest.name, explicitPortRegistration: true, ...modelState,
-    receivedPlatePixel: hiddenPixel, reappearance: true, originalSenderRestored: true, microphoneRequests: 0 }, null, 2));
+    hiddenOutputMode, receivedHiddenPixel: hiddenPixel, reappearance: true, originalSenderRestored: true, microphoneRequests: 0 }, null, 2));
 } catch (error) {
   console.error('Browser smoke failed:', error.message);
   if (page) {

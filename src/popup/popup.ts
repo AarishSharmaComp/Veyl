@@ -313,8 +313,8 @@ function render(): void {
 
   setStatusItem(elements.siteIcon, elements.siteStatus, Boolean(siteReady && bridgeReady), siteReady ? (bridgeReady ? 'Connected' : 'Reload') : 'Disabled', Boolean(site && !siteReady));
   setStatusItem(elements.cameraIcon, elements.cameraStatus, cameraReady, cameraReady ? (outboundReady ? 'Routed' : 'Processing') : 'Waiting', siteReady && !cameraReady);
-  setStatusItem(elements.modelIcon, elements.modelStatus, status.modelReady, !settings.realTimeRemoval ? 'Paused'
-    : status.modelReady ? 'Ready' : !cameraReady ? 'On demand' : status.error ? 'Unavailable' : 'Loading', Boolean(status.error && settings.realTimeRemoval));
+  setStatusItem(elements.modelIcon, elements.modelStatus, status.modelReady, status.modelReady ? 'Ready'
+    : !cameraReady ? 'On demand' : status.error ? 'Unavailable' : 'Loading', Boolean(status.error));
   setStatusItem(elements.effectIcon, elements.effectStatus, status.effectActive, status.effectActive ? (outboundReady ? 'Sender attached' : 'Local / unverified') : 'Inactive');
   elements.processingPill.textContent = status.effectActive ? (outboundReady ? 'ACTIVE' : 'LOCAL') : cameraReady ? 'READY' : 'IDLE';
   elements.processingPill.className = `live-pill ${status.effectActive ? 'active' : cameraReady ? 'ready' : ''}`;
@@ -352,8 +352,13 @@ function render(): void {
     : status.gestureDetectionActive
       ? status.handTracked
         ? `Hand tracked${status.gestureCandidate ? ' — contact candidate' : ''}. `
-          + `Inference ${status.handInferenceMs}ms. Hold thumb + middle together briefly, then curl the middle finger quickly toward your palm.`
-        : `Detection is ready. Show one steady hand to the camera. Last inference ${status.handInferenceMs}ms.`
+          + `Inference ${status.handInferenceMs}ms / ${status.handInferenceHz || 0}Hz. `
+          + (status.gestureState === 'fist'
+            ? `Fist ${formatMetric(status.gestureFistScore)}; ${status.gestureReason}. Hold a closed fist briefly, then open your hand to re-arm.`
+            : `Pinch ${formatMetric(status.gesturePinchDistance)} Δ${formatMetric(status.gestureDistanceDelta)}; `
+              + `${status.gestureReason}. Hold thumb + middle together briefly, then curl the middle finger quickly toward your palm.`)
+        : `Detection is ready. Show one steady hand to the camera. `
+          + `${status.gestureReason}; last inference ${status.handInferenceMs}ms.`
       : 'Gesture detection is loading or unavailable. Manual controls remain available.';
 
   renderSiteList();
@@ -414,6 +419,10 @@ function showToast(message: string): void {
 
 function formatCooldown(milliseconds: number): string {
   return `${(milliseconds / 1000).toFixed(1)}s`;
+}
+
+function formatMetric(value: number | null): string {
+  return value === null || !Number.isFinite(value) ? '—' : value.toFixed(2);
 }
 
 function get<T extends HTMLElement>(id: string): T {
