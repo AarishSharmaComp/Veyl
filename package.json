@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "test:browser": "node scripts/browser-smoke.mjs",
+    "test:hand-lab": "node scripts/hand-inference-lab.mjs",
     "check": "npm run typecheck && npm run build && npm test"
   },
   "dependencies": {

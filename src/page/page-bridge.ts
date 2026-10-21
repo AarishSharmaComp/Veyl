@@ -1,4 +1,5 @@
 import { CameraPipeline, type PipelineEvent } from '../camera/camera-pipeline';
+import { installMediaPipeTrustedTypesAdapter } from '../camera/mediapipe-trusted-types';
 import { installCameraIntegration, type CameraIntegration } from '../integration/camera-integration';
 import { GestureController } from '../gestures/gesture-controller';
 import { sanitizeSettings } from '../shared/settings';
@@ -83,6 +84,7 @@ function installPageBridge(): void {
     }
     policyError = null;
     policyMessage = '';
+    installMediaPipeTrustedTypesAdapter(init.assetBaseUrl);
     if (!integration || integration.currentState.disposed) integration = prehook();
     await integration.setActive(true);
     if (epoch !== revision || !authorized) return;

@@ -1,7 +1,8 @@
 import { BackgroundPlate, DEFAULT_STATUS, PipelineStatus, SiteDescriptor, VeylSettings } from '../shared/types';
 import { ParticleEffect } from '../effects/particles';
 import { DisappearanceEffect } from '../effects/disappearance-effect';
-import { HandGestureDetector } from '../gestures/hand-gesture-detector';
+import { HandGestureDetector, HandGestureResult } from '../gestures/hand-gesture-detector';
+import { HandGestureWorkerClient } from '../gestures/hand-gesture-worker-client';
 import { BackgroundManager } from './background-manager';
 import { Compositor } from './compositor';
 import { PerformanceManager } from './performance-manager';
@@ -42,6 +43,16 @@ interface OutputLease {
   released: boolean;
 }
 
+interface HandInferenceClient {
+  initialize(wasmBaseUrl: string, modelUrl: string): Promise<void>;
+  detect(video: HTMLVideoElement, timestamp: number, sensitivity: number, cooldownMs: number): HandGestureResult | Promise<HandGestureResult>;
+  reset(): void;
+  close(): void;
+  readonly ready: boolean;
+  readonly offloaded: boolean;
+  readonly offloadError: string | null;
+}
+
 /**
  * One active processed camera view per tab, shared by independently stoppable
  * output tracks. The newest live acquisition supplies that view; an older live
@@ -52,7 +63,8 @@ export class CameraPipeline {
   private readonly compositor = new Compositor();
   private readonly backgroundManager = new BackgroundManager();
   private readonly segmenter = new PersonSegmenter();
-  private readonly handDetector = new HandGestureDetector();
+  private handDetector: HandInferenceClient;
+  private handWorkerSelected = false;
   private readonly performance = new PerformanceManager();
   private readonly particles = new ParticleEffect();
   private readonly disappearance = new DisappearanceEffect();
@@ -93,6 +105,7 @@ export class CameraPipeline {
   private lastToggleAt = -Infinity;
   private cameraEnabled = false;
   private lastHandInferenceAt = -Infinity;
+  private handInferenceSamples = 0;
   private reloadRequired = false;
   private settingsValue: VeylSettings;
   private status: PipelineStatus = { ...DEFAULT_STATUS };
@@ -100,6 +113,8 @@ export class CameraPipeline {
   constructor(settings: VeylSettings, private readonly onEvent: PipelineEventHandler) {
     this.settingsValue = { ...settings };
     this.performance.setMode(settings.performanceMode);
+    this.handWorkerSelected = typeof Worker === 'function' && typeof createImageBitmap === 'function';
+    this.handDetector = this.handWorkerSelected ? new HandGestureWorkerClient() : new HandGestureDetector();
   }
 
   async setAssetBaseUrl(assetBaseUrl: string): Promise<void> {
@@ -654,8 +669,16 @@ export class CameraPipeline {
     this.handEpoch += 1;
     this.handDetector.close();
     this.lastHandInferenceAt = -Infinity;
+    this.handInferenceSamples = 0;
     this.status.gestureDetectionActive = false;
     this.status.handTracked = false;
+    this.status.gestureState = 'idle';
+    this.status.gestureCandidate = false;
+    this.status.gestureReleaseVelocity = 0;
+    this.status.handInferenceMs = 0;
+    this.status.handInferenceOffloaded = false;
+    this.status.handInferenceOffloadError = null;
+    this.status.lastHandInferenceAt = null;
   }
 
   private closeModels(): void {
@@ -693,7 +716,22 @@ export class CameraPipeline {
     const epoch = this.handEpoch;
     const operation = (async () => {
       try {
-        await this.handDetector.initialize(new URL('wasm/', this.assetBaseUrl).toString(), new URL('models/hand_landmarker.task', this.assetBaseUrl).toString());
+        const wasmUrl = new URL('wasm/', this.assetBaseUrl).toString();
+        const modelUrl = new URL('models/hand_landmarker.task', this.assetBaseUrl).toString();
+        try {
+          await this.handDetector.initialize(wasmUrl, modelUrl);
+        } catch (workerError) {
+          if (!this.handWorkerSelected) throw workerError;
+          // A site may block worker creation independently of its script/URL
+          // policy. Preserve functionality with the existing main-thread path,
+          // while leaving the worker failure visible in the console.
+          console.warn('[Veyl] Hand worker unavailable; falling back to main-thread inference.', workerError);
+          this.status.handInferenceOffloadError = toErrorMessage(workerError);
+          this.handDetector.close();
+          this.handDetector = new HandGestureDetector();
+          this.handWorkerSelected = false;
+          await this.handDetector.initialize(wasmUrl, modelUrl);
+        }
         if (epoch !== this.handEpoch || !this.canInfer() || !this.settingsValue.gestureDetection) {
           this.handDetector.close();
           return;
@@ -703,7 +741,6 @@ export class CameraPipeline {
       } catch (error) {
         if (epoch !== this.handEpoch) return;
         this.handModelFailed = true;
-        this.latestMask = null;
         this.fail(`Hand gesture detection could not start: ${toErrorMessage(error)}. Manual controls remain available.`);
       }
     })();
@@ -718,12 +755,12 @@ export class CameraPipeline {
       if (finished || !this.running) return;
       finished = true;
       this.cancelFrame();
-      try { this.renderFrame(timestamp); } catch (error) {
+      void this.renderFrame(timestamp).catch((error) => {
         this.latestMask = null;
         this.handDetector.reset();
         if (this.activeSource) this.safeLiveFrame(this.activeSource.video);
         this.fail(`Camera processing recovered from a frame error: ${toErrorMessage(error)}`);
-      } finally { this.scheduleFrame(); }
+      }).finally(() => this.scheduleFrame());
     };
     const video = this.activeSource?.video;
     if (video && typeof video.requestVideoFrameCallback === 'function') {
@@ -745,7 +782,7 @@ export class CameraPipeline {
     this.frameTimer = null;
   }
 
-  private renderFrame(timestamp: number): void {
+  private async renderFrame(timestamp: number): Promise<void> {
     // Native input stop() has no ended event either; never rely on events alone.
     for (const lease of [...this.leases]) if (lease.track.readyState !== 'live') this.releaseLease(lease);
     if (!this.leases.size) return;
@@ -757,6 +794,7 @@ export class CameraPipeline {
       return;
     }
     const video = source.video;
+    const frameLifecycle = this.lifecycle;
     if (!usableVideo(video)) return;
     if (![...this.leases].some((lease) => lease.track.enabled)) return;
     if (!this.processingEnabled) {
@@ -768,34 +806,58 @@ export class CameraPipeline {
       this.resetSourceState();
     }
 
-    let inferenceError = false;
+    let segmentationError = false;
+    let handPromise: Promise<HandGestureResult> | null = null;
+    // Hand inference is latency-sensitive. Run it before the potentially slow
+    // segmentation call and use a mode-specific cadence instead of a fixed
+    // 100 ms gate for every performance mode.
+    if (this.settingsValue.gestureDetection && this.handDetector.ready &&
+      timestamp - this.lastHandInferenceAt >= this.handInferenceIntervalMs()) {
+      this.lastHandInferenceAt = timestamp;
+      try {
+        handPromise = Promise.resolve(this.handDetector.detect(video, timestamp, this.settingsValue.gestureSensitivity, this.settingsValue.gestureCooldownMs));
+      } catch (error) {
+        handPromise = Promise.reject(error);
+      }
+    }
     if (this.settingsValue.realTimeRemoval && this.segmenter.ready && this.performance.shouldInfer(timestamp)) {
       this.performance.beginInference(timestamp);
       const started = performance.now();
       try {
         const mask = this.segmenter.segment(video, timestamp);
         this.latestMask = validMask(mask) ? mask : null;
+        if (this.status.error?.startsWith('A segmentation frame was skipped:')) this.status.error = null;
       } catch (error) {
-        inferenceError = true;
+        segmentationError = true;
         this.latestMask = null;
         this.status.error = `A segmentation frame was skipped: ${toErrorMessage(error)}`;
       }
       this.performance.recordInference(performance.now() - started);
     }
-    if (this.settingsValue.gestureDetection && this.handDetector.ready && timestamp - this.lastHandInferenceAt >= 100) {
-      this.lastHandInferenceAt = timestamp;
+    if (handPromise) {
       try {
-        const gesture = this.handDetector.detect(video, timestamp, this.settingsValue.gestureSensitivity, this.settingsValue.gestureCooldownMs);
+        const gesture = await handPromise;
+        if (frameLifecycle !== this.lifecycle || !this.running || !this.processingEnabled ||
+          this.activeSource !== source || !this.settingsValue.gestureDetection) return;
         this.status.handTracked = gesture.handTracked;
+        this.status.gestureState = gesture.state;
+        this.status.gestureCandidate = gesture.candidate;
+        this.status.gestureReleaseVelocity = gesture.releaseVelocity;
+        this.status.handInferenceMs = Number.isFinite(gesture.inferenceMs) ? Math.round(gesture.inferenceMs) : 0;
+        this.status.handInferenceOffloaded = this.handDetector.offloaded;
+        this.handInferenceSamples += 1;
+        this.status.lastHandInferenceAt = timestamp;
+        if (this.status.error?.startsWith('A hand gesture frame was skipped:')) this.status.error = null;
         if (gesture.confirmed) {
           this.status.lastGestureAt = timestamp;
           this.toggleEffect();
           this.onEvent({ type: 'GESTURE_DETECTED' });
         }
       } catch (error) {
-        inferenceError = true;
-        this.latestMask = null;
         this.handDetector.reset();
+        this.status.gestureState = 'idle';
+        this.status.gestureCandidate = false;
+        this.status.gestureReleaseVelocity = 0;
         this.status.handTracked = false;
         this.status.error = `A hand gesture frame was skipped: ${toErrorMessage(error)}`;
       }
@@ -803,7 +865,7 @@ export class CameraPipeline {
     const transition = this.disappearance.state;
     const progress = this.disappearance.progress(timestamp);
     const strength = transition === 'disappear' ? progress : transition === 'reappear' ? 1 - progress : this.status.effectActive ? 1 : 0;
-    if (inferenceError) this.drawLiveFrame(video);
+    if (segmentationError) this.drawLiveFrame(video);
     else {
       this.compositor.render(video, this.backgroundManager, this.latestMask, {
         hidden: this.status.effectActive || transition === 'reappear',
@@ -826,10 +888,10 @@ export class CameraPipeline {
         }).catch(() => undefined).finally(() => { this.mismatchCheckPending = false; });
     }
     this.status.gestureDetectionActive = this.settingsValue.gestureDetection && this.handDetector.ready;
-    this.status.usingBackgroundPlate = !inferenceError && this.status.effectActive && this.settingsValue.useBackgroundPlate && this.backgroundManager.ready;
+    this.status.usingBackgroundPlate = !segmentationError && this.status.effectActive && this.settingsValue.useBackgroundPlate && this.backgroundManager.ready;
     this.status.fps = this.performance.getFps();
     this.status.inferenceMs = this.performance.getInferenceMs();
-    if (this.status.effectActive && !inferenceError) this.status.message = this.hiddenMessage();
+    if (this.status.effectActive && !segmentationError) this.status.message = this.hiddenMessage();
     if (timestamp - this.lastStatusSent > 450) this.emitStatus();
   }
 
@@ -866,6 +928,21 @@ export class CameraPipeline {
     if (this.settingsValue.realTimeRemoval && !this.segmenter.ready) return 'Waiting for segmentation; the captured plate is being used safely.';
     if (this.settingsValue.realTimeRemoval && !this.latestMask) return 'Waiting for a valid person mask; the captured plate is being used safely.';
     return 'You are hidden locally. Use the control or hand gesture again to reappear.';
+  }
+
+  private handInferenceIntervalMs(): number {
+    const base = (() => {
+      switch (this.settingsValue.performanceMode) {
+        case 'quality': return 50;
+        case 'performance': return 100;
+        case 'balanced': return 66;
+      }
+    })();
+    // The first real inference can include GPU/kernel warm-up. Do not turn
+    // that one-time cost into a multi-second cadence, but avoid asking a
+    // synchronous fallback detector to run faster than its measured duration.
+    if (this.handInferenceSamples < 2 || !Number.isFinite(this.status.handInferenceMs) || this.status.handInferenceMs <= 0) return base;
+    return Math.max(base, Math.ceil(this.status.handInferenceMs * 1.2));
   }
 
   private emitStatus(force = false): void {

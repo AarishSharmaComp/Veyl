@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const browserPath = process.env.BROWSER_BIN;
 if (!browserPath) throw new Error('Set BROWSER_BIN to a Chromium/Chrome-for-Testing executable supporting unpacked extensions. No personal browser profile is used.');
+const trustedTypesEnforced = process.env.VEYL_TRUSTED_TYPES === '1';
 const profile = await mkdtemp(resolve(tmpdir(), 'veyl-synthetic-smoke-'));
 const fixture = await readFile(resolve(root, 'tests/fixtures/loopback.js'));
 const bridge = await readFile(resolve(root, 'dist/page-bridge.js'));
@@ -17,6 +18,7 @@ const server = createServer((request, response) => {
   else if (request.url === '/fixture.js') { response.setHeader('Content-Type', 'application/javascript'); response.end(fixture); }
   else {
     response.setHeader('Content-Type', 'text/html');
+    if (trustedTypesEnforced) response.setHeader('Content-Security-Policy', "require-trusted-types-for 'script'");
     response.end(`<!doctype html><meta charset="utf-8"><title>Veyl synthetic loopback</title><body>
       <script>window.microphoneRequests=0; const native=navigator.mediaDevices.getUserMedia;
       navigator.mediaDevices.getUserMedia=function(c){if(c?.audio)window.microphoneRequests++;return native.call(this,c)};</script>
@@ -34,6 +36,7 @@ const child = spawn(browserPath, ['--headless=new', '--no-first-run', '--no-defa
 child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
 child.on('error', (error) => { stderr += error.message; });
 const connections = [];
+let page;
 
 class CDP {
   constructor(url) {
@@ -92,16 +95,18 @@ try {
   assert.equal(registration, true);
   const { targetId } = await browser.call('Target.createTarget', { url: 'about:blank' });
   const target = await waitFor(async () => (await (await fetch(`${debugOrigin}/json/list`)).json()).find((item) => item.id === targetId), 'Fixture target');
-  const page = new CDP(target.webSocketDebuggerUrl);
+  page = new CDP(target.webSocketDebuggerUrl);
   await page.call('Page.enable');
   await page.call('Page.navigate', { url: `http://127.0.0.1:${port}/` });
   await waitFor(() => page.evaluate('Boolean(window.veylSmoke?.configure)'), 'Fixture bootstrap');
+  if (trustedTypesEnforced) assert.equal(await page.evaluate('Boolean(window.trustedTypes)'), true);
   await page.evaluate(`window.veylSmoke.configure(${JSON.stringify(baseUrl)})`);
   const started = await page.evaluate('window.veylSmoke.start()');
   assert.equal(started.microphoneRequests, 0);
   await waitFor(() => page.evaluate('window.veylSmoke.remote?.readyState >= 2 && window.veylSmoke.status?.cameraRoute === "outbound"'), 'Loopback processed video');
   await waitFor(() => page.evaluate('window.veylSmoke.status?.modelReady && window.veylSmoke.status?.gestureDetectionActive'), 'Both real local MediaPipe models', 45000);
-  const modelState = await page.evaluate('({modelReady:veylSmoke.status.modelReady, handModelReady:veylSmoke.status.gestureDetectionActive, fps:veylSmoke.status.fps})');
+  await waitFor(() => page.evaluate('window.veylSmoke.status?.lastHandInferenceAt !== null'), 'First hand inference', 45000);
+  const modelState = await page.evaluate('({modelReady:veylSmoke.status.modelReady, handModelReady:veylSmoke.status.gestureDetectionActive, handInferenceOffloaded:veylSmoke.status.handInferenceOffloaded, handInferenceOffloadError:veylSmoke.status.handInferenceOffloadError, handInferenceMs:veylSmoke.status.handInferenceMs, workerType:typeof Worker, imageBitmapType:typeof createImageBitmap, fps:veylSmoke.status.fps})');
 
   await page.evaluate(`window.veylSmoke.configure(${JSON.stringify(baseUrl)},true,false)`);
   await waitFor(() => page.evaluate('window.veylSmoke.status?.modelReady === false'), 'Plate-only setting');
@@ -123,10 +128,14 @@ try {
   assert.equal(await page.evaluate('window.microphoneRequests'), 0);
   await page.evaluate('window.veylSmoke.stop()');
   console.log(JSON.stringify({ browser: version.product, evidence: 'Synthetic local WebRTC loopback, NOT a Meet/OmeTV call',
-    manifestName: manifest.name, explicitPortRegistration: true, ...modelState,
+    trustedTypesEnforced, manifestName: manifest.name, explicitPortRegistration: true, ...modelState,
     receivedPlatePixel: hiddenPixel, reappearance: true, originalSenderRestored: true, microphoneRequests: 0 }, null, 2));
 } catch (error) {
   console.error('Browser smoke failed:', error.message);
+  if (page) {
+    try { console.error('Page evidence:', JSON.stringify(await page.evaluate('({status:window.veylSmoke?.status,errors:window.veylSmoke?.errors})'))); }
+    catch (pageError) { console.error('Page evidence unavailable:', pageError.message); }
+  }
   console.error(stderr.slice(-5000));
   process.exitCode = 1;
 } finally {

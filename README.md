@@ -26,7 +26,8 @@ sender, and documents the remaining browser-level verification honestly.
   shockwave effects.
 - Keyboard shortcut: `Ctrl`/`⌘` + `Shift` + `X`.
 - Camera-based visual hand gesture trigger using local MediaPipe Hand Landmarker
-  inference. Veyl does **not** request microphone access for this feature.
+  inference, with transferable `ImageBitmap` worker offload when the host page
+  permits it. Veyl does **not** request microphone access for this feature.
 - Dark, compact Veyl popup with site management and camera status.
 - No camera-frame, mask, hand-landmark, background, or audio uploads.
 
@@ -68,7 +69,7 @@ is not an atomic filesystem exchange. If publication and rollback both fail,
 the error identifies the preserved previous output for manual recovery. It includes:
 
 - `manifest.json`
-- bundled content, page, service-worker, and popup scripts
+- bundled content, page, hand-worker, service-worker, and popup scripts
 - popup HTML/CSS
 - Veyl icons at 16, 32, 48, and 128 pixels
 - `selfie_segmenter.tflite`
@@ -79,6 +80,31 @@ the error identifies the preserved previous output for manual recovery. It inclu
 Validation checks model sizes/SHA-256 hashes, all four declared PNG icon sizes,
 required scripts/UI/notices, and both SIMD/non-SIMD WASM modules. Missing or
 corrupt assets fail the build before publication.
+
+### Trusted Types and the local MediaPipe loader
+
+The locked MediaPipe Tasks Vision bundle uses a dynamic script element to load
+its packaged Emscripten WASM loader. The build applies a reproducible local
+transform so that this one loader URL passes through Veyl’s adapter instead of
+assigning a string directly to `HTMLScriptElement.src`. When the selected page
+requires Trusted Types for scripts, the page bridge creates one narrowly scoped
+policy for the current `chrome-extension://` origin and the exact packaged
+MediaPipe loader paths under `wasm/`. The adapter rejects every other URL and
+configuration fails closed with the policy error visible in Veyl status. It
+also removes MediaPipe’s upstream identity `goog#html` policy from the bundled
+runtime. It does not weaken the host CSP, evaluate fetched code, or load remote
+executable code. Hand inference uses a self-contained blob bootstrap to import
+the packaged worker from its exact extension URL; the bootstrap applies the same
+exact-origin policy to the local MediaPipe WASM loader. If a browser blocks the
+worker path, Veyl falls back to the local main-thread detector and reports the
+offload error instead of weakening Trusted Types.
+
+The real browser regression can be run against the existing synthetic WebRTC
+smoke fixture with Trusted Types enforcement enabled:
+
+```sh
+BROWSER_BIN="/path/to/Chromium" VEYL_TRUSTED_TYPES=1 npm run test:browser
+```
 
 Use `VEYL_VERSION` for a Chrome-compatible version override:
 
@@ -247,6 +273,7 @@ Isolated content script <-> MAIN-world page bridge
         |        +--> hidden source video
         |        +--> MediaPipe person mask
         |        +--> MediaPipe hand landmarks / gesture state machine
+        |        |        \--> local ImageBitmap worker when available
         |        +--> background plate + compositor
         |                       |
         |                       v
@@ -319,10 +346,27 @@ npm test
   malformed masks, and cleanup after errors;
 - temporal gesture positives/false-positive boundaries and actual pipeline
   effect activation;
+- Trusted Types loader transformation, exact URL policy boundaries, worker URL
+  branding, and hand-detector lifecycle cleanup;
 - bridge command failures, origin/session rejection, repeated injection/BFCache;
 - build rollback and missing/corrupt model/icon/WASM/license assets.
 
 Node mocks do not prove a particular site's actual camera or remote output.
+
+### Standalone real MediaPipe hand lab
+
+The hand lab runs the real bundled `HandLandmarker` and local WASM in a
+disposable browser profile. It is useful for proving model initialization,
+observable landmarks, and timing without involving a live site:
+
+```sh
+HAND_IMAGE="assets/promotional/veyl-room.svg" \
+BROWSER_BIN="/absolute/path/to/chromium" \
+VEYL_TRUSTED_TYPES=1 npm run test:hand-lab
+```
+
+The lab input must be treated as test evidence only. An illustration or local
+image does not prove physical-camera snap accuracy or live Meet/OmeTV output.
 
 ### Optional real-browser synthetic smoke
 
@@ -341,8 +385,9 @@ for your shell on Windows. No Puppeteer/Playwright dependency is required.
 The runner uses a disposable browser profile, synthetic camera, no microphone,
 a loopback HTTP fixture and real local WebRTC peers. It verifies the loaded
 extension identity, explicit-port registration acceptance, both bundled models
-ready, a replacement plate decoded by the receiving peer, reappearance, and
-native sender restoration. It leaves personal browser profiles untouched.
+ready, hand inference (including worker offload when available), a replacement
+plate decoded by the receiving peer, reappearance, and native sender restoration.
+It leaves personal browser profiles untouched.
 
 **Boundary:** the fixture directly injects/authorizes the production page
 bridge. It does not automate popup permission prompts or the actual isolated

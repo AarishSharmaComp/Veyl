@@ -76,6 +76,16 @@ Updated: October 21, 2026
   camera approach/scale changes, identity jumps, gaps, and malformed landmarks.
 - Singleton model construction is cancellation-safe across WASM resolution and
   late GPU/CPU creation; buffers are reused and masks are released after reading.
+- Hand inference treats MediaPipe handedness as identity metadata rather than
+  presence confidence, clears stale temporal evidence on repeated/reordered
+  timestamps, and keeps hand failures separate from usable person segmentation.
+- Hand inference runs before segmentation on its own adaptive cadence and
+  reports `handInferenceMs`, `handInferenceOffloaded`, and
+  `handInferenceOffloadError` diagnostics.
+- Added `hand-gesture-worker.js`, which transfers local `ImageBitmap` frames to a
+  detector worker. A blob bootstrap imports only the packaged extension worker
+  and exact local WASM paths, including under enforced Trusted Types; blocked
+  workers fail closed to the main-thread detector.
 - Added popup controls for enablement, sensitivity, cooldown, hand-tracked
   status, and manual fallback controls.
 - No microphone permission is requested for gesture detection.
@@ -102,6 +112,15 @@ Updated: October 21, 2026
 - Build output is staged, validated, and promoted using rollback-safe staged
   renames (not an atomic filesystem exchange). Previous output is preserved if
   promotion fails; if rollback also fails, its recovery path is reported.
+- The locked MediaPipe dynamic loader receives a reproducible build-time
+  adapter. In a page requiring `require-trusted-types-for 'script'`, the page
+  bridge creates a narrowly allowlisted policy for only the current extension
+  origin and packaged `wasm/vision_wasm*_internal.js` loader paths; policy
+  failure disables initialization with diagnostics rather than weakening CSP.
+- The worker bootstrap brands its blob URL only after VEYL registers it and
+  applies a separate exact-origin policy to the worker's local
+  `importScripts()` WASM loaders. No unrestricted page policy, `eval`,
+  `new Function`, or remote executable resource was added.
 - Validation requires all icon/model metadata, PNG dimensions/signatures, model
   sizes/checksums, UI/scripts/notices, and valid SIMD/non-SIMD WASM modules.
 - Model provenance is in `public/models/models.json`; runtime license/notices
@@ -117,13 +136,29 @@ Last run on October 21, 2026, macOS ARM64, Node 26.9.0 / npm 11.19.1.
 Typecheck and tests were each run with a five-minute timeout:
 
 - `npm run typecheck` — passed.
-- `npm test` — **184 passed, 0 failed, 0 skipped**.
+- `npm test` — **193 passed, 0 failed, 0 skipped**.
 - `npm run build` — passed.
 - `npm run check` is the convenience sequence: typecheck, build, tests. The
   individual commands above were executed against the current code/package.
 - `python3 scripts/generate-artwork.py --check` — all eight PNGs matched.
 - `git diff --check` — passed.
 - No lint command is configured in `package.json`.
+
+### Trusted Types regression
+
+The existing browser smoke accepts `VEYL_TRUSTED_TYPES=1`, adds
+`require-trusted-types-for 'script'` to its local fixture, and exercises the
+real bundled MediaPipe loader plus both real local models. This is the focused
+regression command:
+
+```sh
+BROWSER_BIN="/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" VEYL_TRUSTED_TYPES=1 npm run test:browser
+```
+
+On October 21, 2026 this passed with Brave 155.1.97.59 / Chromium
+`Chrome/155.0.8059.85`, both real local models ready, hand inference offloaded to
+the worker, processed loopback output, sender restoration, and zero microphone
+requests.
 
 ### Real browser smoke (synthetic only)
 
@@ -139,11 +174,30 @@ Brave 155.1.97.59 reported Chromium `Chrome/155.0.8059.85`. Results:
 - Unpacked extension identity: **Veyl — Live Camera Effects**.
 - Browser accepted explicit-port script registration.
 - Both real bundled MediaPipe models ready.
+- Hand inference was offloaded to the worker with no offload error; observed
+  hand inference was approximately 86 ms without the strict Trusted Types
+  fixture and 92 ms with it.
 - Local receiving peer decoded replacement plate `[186, 34, 70, 255]` for target
   `[192, 32, 64]` within the test's compression tolerance.
 - Reappearance restored current live imagery.
 - Disablement restored the original sender track and ended the processed track.
 - Microphone requests: **0**; camera input was browser-generated synthetic video.
+
+### Standalone real hand inference lab
+
+The following command used the actual bundled `HandLandmarker` and local WASM
+under the strict Trusted Types fixture:
+
+```sh
+HAND_IMAGE="assets/promotional/veyl-room.svg" \
+BROWSER_BIN="/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" \
+VEYL_TRUSTED_TYPES=1 npm run test:hand-lab
+```
+
+It produced three frames with `handTracked: true` and 21 landmarks. Warm-up was
+approximately 4.7 seconds and subsequent samples were approximately 106–110 ms.
+The SVG is a deterministic local illustration, not a physical hand or live-site
+test, so this confirms real model execution and observable landmarks only.
 
 The fixture directly injects/authorizes the production page bridge. It does not
 test popup Chrome permission prompts or the real content-script/worker activation
@@ -155,6 +209,7 @@ The generated `dist/` package contains:
 - `manifest.json`
 - `content.js`
 - `page-bridge.js`
+- `hand-gesture-worker.js`
 - `background.js`
 - `popup.html`, `popup.js`, `popup.css`
 - `icons/veyl-16.png`, `veyl-32.png`, `veyl-48.png`, `veyl-128.png`

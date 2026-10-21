@@ -350,7 +350,10 @@ function render(): void {
   elements.gestureStatus.textContent = !settings.gestureDetection
     ? 'Camera gesture detection is off.'
     : status.gestureDetectionActive
-      ? status.handTracked ? 'Hand tracked. Hold thumb + middle together briefly, then curl the middle finger quickly toward your palm.' : 'Detection is ready. Show one steady hand to the camera.'
+      ? status.handTracked
+        ? `Hand tracked${status.gestureCandidate ? ' — contact candidate' : ''}. `
+          + `Inference ${status.handInferenceMs}ms. Hold thumb + middle together briefly, then curl the middle finger quickly toward your palm.`
+        : `Detection is ready. Show one steady hand to the camera. Last inference ${status.handInferenceMs}ms.`
       : 'Gesture detection is loading or unavailable. Manual controls remain available.';
 
   renderSiteList();

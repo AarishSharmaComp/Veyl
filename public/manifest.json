@@ -51,7 +51,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["models/*", "wasm/*"],
+      "resources": ["models/*", "wasm/*", "hand-gesture-worker.js"],
       "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"]
     }
   ],

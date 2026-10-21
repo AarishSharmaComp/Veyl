@@ -21,10 +21,11 @@ function fixture(t) {
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const manifest = JSON.parse(readFileSync(new URL('../public/manifest.json', import.meta.url), 'utf8'));
   writeJson(directory, 'manifest.json', manifest);
-  for (const path of ['content.js', 'page-bridge.js', 'background.js', 'popup.html', 'popup.js', 'popup.css',
+  for (const path of ['content.js', 'page-bridge.js', 'hand-gesture-worker.js', 'background.js', 'popup.html', 'popup.js', 'popup.css',
     'licenses/NOTICE.md', 'licenses/Apache-2.0.txt']) {
     writeAsset(directory, path, 'test fixture\n');
   }
+  writeAsset(directory, 'page-bridge.js', 'globalThis.__veylMediaPipeCreateScriptUrl = true;\n');
   for (const path of Object.values(manifest.icons)) {
     writeAsset(directory, path, readFileSync(new URL(`../public/${path}`, import.meta.url)));
   }

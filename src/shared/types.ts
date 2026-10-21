@@ -1,5 +1,6 @@
 export type PerformanceMode = 'quality' | 'balanced' | 'performance';
 export type CameraRoute = 'waiting' | 'original' | 'processed' | 'outbound';
+export type GestureStatusState = 'idle' | 'pinched' | 'cooldown';
 
 export interface VeylSettings {
   realTimeRemoval: boolean;
@@ -60,6 +61,13 @@ export interface PipelineStatus {
   backgroundMismatch: boolean;
   gestureDetectionActive: boolean;
   handTracked: boolean;
+  gestureState: GestureStatusState;
+  gestureCandidate: boolean;
+  gestureReleaseVelocity: number;
+  handInferenceMs: number;
+  handInferenceOffloaded: boolean;
+  handInferenceOffloadError: string | null;
+  lastHandInferenceAt: number | null;
   lastGestureAt: number | null;
   fps: number;
   inferenceMs: number;
@@ -161,6 +169,13 @@ export const DEFAULT_STATUS: PipelineStatus = {
   backgroundMismatch: false,
   gestureDetectionActive: false,
   handTracked: false,
+  gestureState: 'idle',
+  gestureCandidate: false,
+  gestureReleaseVelocity: 0,
+  handInferenceMs: 0,
+  handInferenceOffloaded: false,
+  handInferenceOffloadError: null,
+  lastHandInferenceAt: null,
   lastGestureAt: null,
   fps: 0,
   inferenceMs: 0,

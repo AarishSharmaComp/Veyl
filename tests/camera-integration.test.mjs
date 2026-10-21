@@ -844,7 +844,7 @@ test('processed metadata reports actual canvas output and source constraints for
   assert.equal(env.pipeline.getOriginalTrack(clone), camera.video);
 });
 
-test('all inference errors discard stale masks and render a valid original live fallback', async (t) => {
+test('hand errors preserve segmentation while segmentation errors use a live fallback', async (t) => {
   const env = environment(t, { realTimeRemoval: true, gestureDetection: true });
   await env.pipeline.setAssetBaseUrl('https://extension.test/');
   const camera = env.camera();
@@ -859,17 +859,18 @@ test('all inference errors discard stale masks and render a valid original live 
   assert.ok(maskCanvas.maskWrites > 0);
   const validWrites = maskCanvas.maskWrites;
   env.models.handError = true;
+  await env.tick(start + 20);
+  assert.equal(env.models.inferences.hand, 1, 'hand inference is not rerun before its cadence');
+  assert.equal(env.models.inferences.segment, 1, 'segmentation is not rerun before its cadence');
   await env.tick(start + 100);
   assert.equal(env.models.inferences.hand, 2, 'the failing hand inference actually ran');
-  assert.equal(maskCanvas.maskWrites, validWrites);
-  assert.equal(canvas.draws.at(-1).source, camera.video);
-  assert.equal(canvas.draws.at(-1).filter, 'none');
-  await env.tick(start + 120);
-  assert.equal(maskCanvas.maskWrites, validWrites, 'no stale mask is reused between inference ticks');
+  assert.ok(maskCanvas.maskWrites > validWrites, 'segmentation remains usable when hand inference fails');
+  const handErrorWrites = maskCanvas.maskWrites;
+  assert.match(env.pipeline.currentStatus.error, /hand gesture frame was skipped/);
   env.models.handError = false;
   env.models.segmentError = true;
   await env.tick(start + 200);
-  assert.equal(maskCanvas.maskWrites, validWrites);
+  assert.equal(maskCanvas.maskWrites, handErrorWrites);
   assert.equal(canvas.draws.at(-1).filter, 'none');
   canvas.failNextDraw = true;
   await env.tick(start + 300);

@@ -50,7 +50,7 @@ function boundary(t) {
         closes: 0, timestamps: [],
         close() { this.closes++; },
         segmentForVideo(video, timestamp) { this.timestamps.push(timestamp); return state.segmentResult; },
-        detectForVideo(video, timestamp) { this.timestamps.push(timestamp); return { landmarks: [], handedness: [] }; }
+        detectForVideo(video, timestamp) { this.timestamps.push(timestamp); return state.handResult ?? { landmarks: [], handedness: [] }; }
       };
       state.tasks.push(task);
       return task;
@@ -189,4 +189,41 @@ test('both model wrappers avoid duplicate timestamps and stop inference after cl
   assert.equal(person.segment(video, 20), null);
   assert.equal(hand.detect(video, 20, 0.62, 1100).confirmed, false);
   assert.deepEqual(state.tasks.map((task) => task.timestamps), [[10], [10]]);
+});
+
+function handLandmarks({ contact = false } = {}) {
+  const points = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5, z: 0 }));
+  points[0] = { x: 0.50, y: 0.50, z: 0 };
+  points[5] = { x: 0.42, y: 0.58, z: 0 };
+  points[9] = { x: 0.50, y: 0.62, z: 0 };
+  points[13] = { x: 0.58, y: 0.58, z: 0 };
+  points[17] = { x: 0.65, y: 0.55, z: 0 };
+  points[4] = { x: 0.50, y: contact ? 0.35 : 0.38, z: 0 };
+  points[12] = { x: 0.50, y: 0.35, z: 0 };
+  return points;
+}
+
+test('hand detector treats handedness score as identity metadata, not presence confidence', async (t) => {
+  const state = boundary(t); const detector = new HandGestureDetector();
+  await detector.initialize('wasm', 'hand');
+  state.handResult = { landmarks: [handLandmarks()], handedness: [[{ score: 0.1, categoryName: 'Right' }]] };
+  const result = detector.detect({ videoWidth: 640, videoHeight: 480 }, 10, 0.62, 1100);
+  assert.equal(result.handTracked, true);
+  detector.close();
+});
+
+test('hand detector clears stale contact evidence on repeated or reordered timestamps', async (t) => {
+  const state = boundary(t); const detector = new HandGestureDetector();
+  await detector.initialize('wasm', 'hand');
+  state.handResult = { landmarks: [handLandmarks({ contact: true })], handedness: [[{ score: 0.9, categoryName: 'Right' }]] };
+  detector.detect({ videoWidth: 640, videoHeight: 480 }, 0, 0.62, 1100);
+  detector.detect({ videoWidth: 640, videoHeight: 480 }, 40, 0.62, 1100);
+  const armed = detector.detect({ videoWidth: 640, videoHeight: 480 }, 80, 0.62, 1100);
+  assert.equal(armed.candidate, true);
+  const duplicate = detector.detect({ videoWidth: 640, videoHeight: 480 }, 80, 0.62, 1100);
+  assert.equal(duplicate.handTracked, false);
+  assert.equal(duplicate.candidate, false);
+  const late = detector.detect({ videoWidth: 640, videoHeight: 480 }, 79, 0.62, 1100);
+  assert.equal(late.handTracked, false);
+  detector.close();
 });

@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAndPublish } from './build-output.mjs';
+import { createMediaPipeLoaderPlugin } from './mediapipe-loader.mjs';
 import { validateBuild } from './validate-build.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -15,13 +16,15 @@ const common = {
   target: ['chrome111', 'es2022'],
   sourcemap: true,
   legalComments: 'external',
-  logLevel: 'info'
+  logLevel: 'info',
+  plugins: [createMediaPipeLoaderPlugin()]
 };
 
 await buildAndPublish(dist, async (staging) => {
   const bundles = await Promise.allSettled([
     build({ ...common, entryPoints: [resolve(root, 'src/content/content.ts')], outfile: resolve(staging, 'content.js') }),
     build({ ...common, entryPoints: [resolve(root, 'src/page/page-bridge.ts')], outfile: resolve(staging, 'page-bridge.js') }),
+    build({ ...common, entryPoints: [resolve(root, 'src/gestures/hand-gesture-worker.ts')], outfile: resolve(staging, 'hand-gesture-worker.js') }),
     build({ ...common, entryPoints: [resolve(root, 'src/background.ts')], outfile: resolve(staging, 'background.js') }),
     build({ ...common, entryPoints: [resolve(root, 'src/popup/popup.ts')], outfile: resolve(staging, 'popup.js'), loader: { '.css': 'css' } })
   ]);
@@ -61,6 +64,7 @@ await buildAndPublish(dist, async (staging) => {
     'manifest.json',
     'content.js',
     'page-bridge.js',
+    'hand-gesture-worker.js',
     'background.js',
     'popup.html',
     'popup.js',

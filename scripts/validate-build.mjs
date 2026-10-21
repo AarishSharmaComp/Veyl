@@ -14,6 +14,8 @@ export function validateBuild(directory) {
   assert.deepEqual(manifest.host_permissions, ['https://meet.google.com/*']);
   assert.deepEqual(manifest.permissions, ['storage', 'scripting', 'activeTab']);
   assert.ok(manifest.optional_host_permissions.includes('https://*/*'));
+  assert.ok(manifest.web_accessible_resources.some((entry) => entry.resources.includes('hand-gesture-worker.js')),
+    'The hand worker must be exposed only through the existing selected-page resource boundary');
   assert.ok(!('cover' in manifest || 'promotional_image' in manifest), 'Store art is not a manifest field');
 
   const file = (path) => {
@@ -38,6 +40,13 @@ export function validateBuild(directory) {
     entry.js.forEach(file);
   }
   file(manifest.background.service_worker); file(manifest.action.default_popup); file('popup.css'); file('popup.js');
+  const pageBridge = file('page-bridge.js').toString();
+  assert.match(pageBridge, /__veylMediaPipeCreateScriptUrl/, 'Page bridge must use the VEYL MediaPipe loader adapter');
+  assert.doesNotMatch(pageBridge, /goog#html/, 'The upstream unrestricted MediaPipe Trusted Types policy must not ship');
+  assert.doesNotMatch(pageBridge, /\beval\s*\(|new\s+Function\s*\(/, 'Packaged page bridge must not introduce dynamic code execution');
+  const handWorker = file('hand-gesture-worker.js').toString();
+  assert.doesNotMatch(handWorker, /goog#html/, 'The upstream unrestricted MediaPipe Trusted Types policy must not ship in the hand worker');
+  assert.doesNotMatch(handWorker, /\beval\s*\(|new\s+Function\s*\(/, 'Packaged hand worker must not introduce dynamic code execution');
   file('licenses/NOTICE.md'); file('licenses/Apache-2.0.txt');
   const provenance = JSON.parse(file('models/models.json').toString());
   assert.deepEqual(provenance.models.map((model) => model.file).sort(), ['hand_landmarker.task', 'selfie_segmenter.tflite'],
