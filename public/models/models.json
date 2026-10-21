@@ -1,0 +1,18 @@
+{
+  "models": [
+    {
+      "file": "selfie_segmenter.tflite",
+      "bytes": 249537,
+      "sha256": "191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b",
+      "source": "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/1/selfie_segmenter.tflite",
+      "purpose": "Binary person/background confidence segmentation; preserved existing model, provenance verified against the versioned official asset."
+    },
+    {
+      "file": "hand_landmarker.task",
+      "bytes": 7819105,
+      "sha256": "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1",
+      "source": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+      "purpose": "Hand detection and 21 hand landmarks; the temporal snap heuristic is implemented separately in Veyl."
+    }
+  ]
+}

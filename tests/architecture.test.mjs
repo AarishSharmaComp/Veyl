@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { validateBuild } from '../scripts/validate-build.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -14,32 +15,41 @@ function readJson(relativePath) {
   return JSON.parse(read(relativePath));
 }
 
-test('Manifest limits integration to Google Meet and installs the early page bridge', () => {
+test('Manifest brands Veyl and limits injection to built-in plus optional origins', () => {
   const manifest = readJson('public/manifest.json');
   assert.equal(manifest.manifest_version, 3);
+  assert.match(manifest.name, /^Veyl/);
+  assert.deepEqual(manifest.permissions, ['storage', 'scripting', 'activeTab']);
   assert.deepEqual(manifest.host_permissions, ['https://meet.google.com/*']);
-  assert.deepEqual(manifest.permissions, ['storage']);
+  assert.ok(manifest.optional_host_permissions.includes('https://*/*'));
+  assert.ok(manifest.optional_host_permissions.includes('http://localhost/*'));
+  assert.ok(manifest.icons['16'].endsWith('veyl-16.png'));
 
   const contentScripts = manifest.content_scripts ?? [];
   assert.ok(contentScripts.some((entry) => entry.js?.includes('content.js') && entry.run_at === 'document_start'));
   assert.ok(contentScripts.some((entry) => entry.js?.includes('page-bridge.js') && entry.run_at === 'document_start' && entry.world === 'MAIN'));
-  assert.ok(!manifest.host_permissions.some((permission) => permission === '<all_urls>' || permission.includes('*://*')));
+  assert.ok(contentScripts.every((entry) => entry.matches.every((match) => match === 'https://meet.google.com/*')));
+  assert.ok(!manifest.web_accessible_resources[0].resources.some((resource) => resource.includes('background')));
 });
 
 test('The page bridge has a processed-track path and a recovery handshake', () => {
-  const source = read('src/page/page-bridge.ts');
+  const bridge = read('src/page/page-bridge.ts');
+  const source = read('src/integration/camera-integration.ts');
+  assert.match(bridge, /installCameraIntegration/);
   assert.match(source, /getUserMedia/);
   assert.match(source, /RTCPeerConnection/);
   assert.match(source, /replaceTrack/);
   assert.match(source, /pipeline\.routeVideoTrack/);
-  assert.match(source, /pipeline\.markOutboundTrack/);
-  assert.match(source, /pipeline\.dispose/);
-  assert.match(source, /case 'PING'/);
+  assert.match(source, /pipeline\.setOutboundTracks/);
+  assert.match(source, /pipeline\.deactivate/);
+  assert.match(bridge, /CONFIG/);
+  assert.match(bridge, /DEACTIVATE/);
+  assert.match(bridge, /message\.type === 'PING'/);
 });
 
 test('The pipeline separates processed video from microphone ownership', () => {
   const source = read('src/camera/camera-pipeline.ts');
-  assert.match(source, /audioTrack\.clone\(\)/);
+  assert.match(source, /Audio tracks belong to the calling website/);
   assert.match(source, /releaseOutputAudio/);
   assert.match(source, /routeVideoTrack/);
   assert.match(source, /markOutboundTrack/);
@@ -53,30 +63,44 @@ test('The compositor has an honest degraded fallback and reusable mask buffers',
   assert.match(source, /blur\(/);
 });
 
-test('The build validates assets before atomically replacing dist', () => {
-  const source = read('scripts/build.mjs');
-  assert.match(source, /dist-staging/);
-  assert.match(source, /selfie_segmenter\.tflite/);
-  assert.match(source, /renameSync\(staging, dist\)/);
-  assert.match(source, /MediaPipe WASM assets are missing/);
-});
-
 test('The local model is present in source assets', () => {
   assert.ok(existsSync(resolve(root, 'public/models/selfie_segmenter.tflite')));
+  assert.ok(existsSync(resolve(root, 'public/models/hand_landmarker.task')));
+  for (const size of [16, 32, 48, 128]) assert.ok(existsSync(resolve(root, `public/icons/veyl-${size}.png`)));
+  assert.ok(existsSync(resolve(root, 'assets/brand/veyl-mark.svg')));
+  assert.ok(existsSync(resolve(root, 'assets/promotional/veyl-cover.svg')));
 });
 
-test('A completed build contains the manifest-referenced runtime files when dist exists', (t) => {
+test('The active detector is camera-based and does not contain microphone analysis', () => {
+  const source = read('src/gestures/hand-gesture-detector.ts');
+  const stateMachine = read('src/gestures/gesture-state-machine.ts');
+  assert.match(source, /HandLandmarker/);
+  assert.match(source, /detectForVideo/);
+  assert.match(stateMachine, /cooldown/);
+  assert.doesNotMatch(source, /AudioContext|ScriptProcessor|getUserMedia/);
+  assert.doesNotMatch(read('src/page/page-bridge.ts'), /AudioContext|ScriptProcessor|audio:\s*\{/);
+});
+
+test('Site policy and storage migration are present', () => {
+  const siteSource = read('src/shared/sites.ts');
+  const storageSource = read('src/shared/site-storage.ts');
+  const settingsSource = read('src/shared/settings.ts');
+  assert.match(siteSource, /url\.protocol === 'https:'/);
+  assert.match(siteSource, /localhost/);
+  assert.match(siteSource, /url\.username \|\| url\.password/);
+  assert.match(storageSource, /migrateStoredState/);
+  assert.match(storageSource, /MEET_SITE_KEY/);
+  assert.match(settingsSource, /snapDetection/);
+  assert.match(settingsSource, /gestureDetection/);
+});
+
+test('A completed build passes package asset validation when dist exists', (t) => {
   const dist = resolve(root, 'dist');
-  if (!existsSync(resolve(dist, 'manifest.json'))) {
+  if (!existsSync(dist)) {
     t.skip('Run npm run build to inspect generated extension assets.');
     return;
   }
 
-  const manifest = readJson('dist/manifest.json');
-  for (const file of ['content.js', 'page-bridge.js', 'background.js', 'popup.html', 'popup.js', 'popup.css']) {
-    assert.ok(existsSync(resolve(dist, file)), `missing dist/${file}`);
-  }
-  assert.ok(existsSync(resolve(dist, 'models/selfie_segmenter.tflite')));
-  assert.ok(existsSync(resolve(dist, 'wasm')));
+  const manifest = validateBuild(dist);
   assert.ok(manifest.content_scripts.some((entry) => entry.js?.includes('page-bridge.js')));
 });

@@ -1,14 +1,15 @@
 {
-  "name": "snap-extension",
+  "name": "veyl-extension",
   "version": "0.1.0",
   "private": true,
-  "description": "Local-first Google Meet camera disappearance effect Chrome extension",
+  "description": "Local-first camera effects for user-selected websites",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/*.test.mjs",
-    "check": "npm run typecheck && npm test && npm run build"
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "test:browser": "node scripts/browser-smoke.mjs",
+    "check": "npm run typecheck && npm run build && npm test"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.22"

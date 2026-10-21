@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Veyl — Present, not visible.</title>
+  <desc id="desc">Documentation cover. A violet folded-V mark and original lettering accompany an illustrated person dissolving in a furnished room. Promotional illustration, not a screenshot or evidence of a browser test.</desc>
+  <defs>
+    <linearGradient id="background" x1="80" y1="0" x2="1500" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#15131f"/>
+      <stop offset="1" stop-color="#0d0d16"/>
+    </linearGradient>
+    <radialGradient id="aura" cx="1190" cy="390" r="680" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9662d7" stop-opacity=".17"/>
+      <stop offset="1" stop-color="#9662d7" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#background)"/>
+  <rect width="1600" height="900" fill="url(#aura)"/>
+  <path d="M96 805 L1504 805" fill="none" stroke="#35303f" stroke-width="1"/>
+  <image href="../brand/veyl-mark.svg" x="91" y="77" width="80" height="80"/>
+  <image href="../brand/veyl-wordmark.svg" x="189" y="90" width="206" height="53.16"/>
+  <g font-family="Arial, Liberation Sans, DejaVu Sans, sans-serif" font-kerning="none">
+    <text x="96" y="271" fill="#b58bec" font-size="18" font-weight="700" letter-spacing="3">LIVE CAMERA EFFECTS</text>
+    <text x="89" y="399" fill="#f4effc" font-size="96" font-weight="700" letter-spacing="-3">Present,</text>
+    <text x="89" y="506" fill="#c1a0f6" font-size="96" font-weight="700" letter-spacing="-3">not visible.</text>
+    <text x="96" y="571" fill="#aaa2b8" font-size="25">Your room stays. You fade.</text>
+    <text x="122" y="696" fill="#c6bbd8" font-size="17">Local-first. Made for your camera.</text>
+    <text x="96" y="849" fill="#82798f" font-size="15" letter-spacing="1">VEYL / PRESENT, NOT VISIBLE.</text>
+    <text x="1504" y="849" fill="#82798f" font-size="13" text-anchor="end" letter-spacing="1">ORIGINAL EFFECT ILLUSTRATION</text>
+  </g>
+  <circle cx="102" cy="690" r="4" fill="#a879ff"/>
+  <image href="veyl-room.svg" x="675" y="111" width="876" height="700.8"/>
+</svg>

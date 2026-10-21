@@ -2,166 +2,234 @@
 
 Updated: October 21, 2026
 
-## Recovered project state
+## Baseline recovered
 
-- Workspace: `/Users/aarishsharma/Documents/veyl`
+- Workspace: `/Users/aarishsharma/Documents/veyl`.
 - Stack: TypeScript, esbuild, Manifest V3, MediaPipe Tasks Vision.
-- Git history currently contains only the initial `README.md` commit. The
-  current source, configuration, lockfile, model, build output, and
-  `node_modules` are untracked; preserve them until the project is reviewed
-  and intentionally staged.
-- No prior-session progress document or automated test files were present.
+- Starting commit: `8e83ab1 feat: establish working Veyl camera effects extension`.
+- Existing Google Meet camera processing, background capture, compositing,
+  effects, popup, build, and architecture tests were preserved.
+- The repository now uses **Veyl** as the product identity and keeps the local
+  directory name unchanged.
 
-## Implemented in the working tree
+## Implemented in this expansion
 
-- Manifest V3 extension limited to `https://meet.google.com/*` with a popup,
-  isolated content script, service worker command, and synchronous MAIN-world
-  page bridge at `document_start`.
-- Local camera pipeline using a canvas `captureStream()` and preservation of
-  cloned audio tracks with separate video/audio cleanup ownership.
-- WebRTC routing hooks for `addTrack`, `addTransceiver`, and
-  `RTCRtpSender.replaceTrack`, plus an outbound processed-track status so the
-  popup does not call a merely local canvas “Live.”
-- MediaPipe `ImageSegmenter` initialization with GPU then CPU fallback,
-  confidence-mask smoothing, background-plate compositing, and a documented
-  no-plate blur fallback.
-- Background capture, local storage synchronization, preview, deletion, and
-  a lightweight border-based mismatch warning.
-- Popup settings for real-time removal, background plate use, animation,
-  performance mode, optional snap detection, and sensitivity.
-- Keyboard shortcut (`Ctrl`/`⌘` + `Shift` + `X`), particle/shockwave effects,
-  and local Web Audio snap detection with cooldown and cleanup paths.
-- Atomic, self-validating build output with platform-correct npm installation,
-  local model/WASM asset checks, README installation/privacy/troubleshooting
-  documentation, and seven Node architecture/package tests.
+### Website policy and permissions
 
-## Partial or unverified
+- Google Meet remains the built-in statically injected site.
+- Other sites are not statically injected.
+- The popup accepts HTTPS origins and localhost development origins only.
+- Chrome optional host permission is requested for the exact selected origin.
+- Enabled non-Meet origins use dynamic `document_start` content-script
+  registration with isolated and MAIN-world scripts.
+- Profiles are stored separately per site and require both host permission and
+  explicit Veyl enablement plus the global switch, including Meet. Registrations
+  and profiles use exact scheme/host/port; a browser grant alone never enables a site.
+- Global enable/disable, current-site enable/disable, site removal, and
+  permission revocation/deactivation paths are implemented.
+- Dynamic scripts are top-frame-only and do not automatically enter
+  cross-origin iframes.
+- Worker writes are serialized across tabs/settings/captures. Legacy backgrounds
+  migrate only to Meet; disabled Meet tombstones prevent resurrection. Prior
+  audio-trigger consent never opts users into the camera trigger.
 
-- The page bridge now runs synchronously at `document_start`, returns the
-  processed stream from the wrapped video `getUserMedia()` call, and routes
-  known original tracks through WebRTC sender hooks. This still has not been
-  verified in a real Google Meet call with a remote participant; a local
-  outbound-track status is not proof of remote delivery.
-- Camera lifecycle, camera switching, permissions, initialization failures,
-  and cleanup need browser-level testing.
-- Segmentation/compositing exists in code but has no automated media tests and
-  has not been validated with the supplied model in Chrome.
-- Product-facing naming is inconsistent: the repository is Veyl, while much
-  of the manifest, UI, messages, and code still says `Snap`.
+### Reusable camera path
 
-## Remaining work
+- Injected selected pages get a minimal synchronous API prehook before site code
+  caches media methods. This does not acquire a camera or initialize ML.
+- Native camera requests start immediately; processing waits at most 1500 ms
+  for worker-authorized policy, otherwise passes the native stream through.
+  Meet has no unconditional processing bootstrap while storage loads.
+- The shared pipeline continues to use local person segmentation, background
+  plates, Canvas compositing, and a processed video capture track.
+- WebRTC routing covers known camera tracks through `getUserMedia`,
+  `addTrack`, `addTransceiver`, and `replaceTrack` paths.
+- `src/integration/camera-integration.ts` tracks aggregate sender bindings and
+  successful replacements, restoring original senders/streams before releasing
+  output tracks. Unknown replacements do not overwrite unrelated bindings.
+- One canvas capture source provides leased output clones across repeated
+  acquisitions, stopped permission probes, native stream clones, and source
+  switches. Existing consumers survive when another output is stopped.
+- If native sender restoration is rejected, ML/effects turn off and the existing
+  output stays live as passthrough with a reload-required status, rather than
+  freezing a still-transmitted track.
+- Original website microphone tracks are returned unchanged and never stopped
+  by video cleanup. Disabling transfers native video back where possible.
+- Unknown tracks and display capture are not intentionally routed.
+- Camera gesture detection reuses the existing hidden source video; it does
+  not start a second camera or microphone stream.
+- Session-bound commands report actual operation/persistence failures. Revision
+  guards, worker refresh/heartbeats, a bounded authorization lease, pagehide,
+  and BFCache re-handshake keep lifecycle changes from reviving stale state.
+- Confident person masks are opaque on the first frame; invalid inference drops
+  stale masks. Captured plates/live fallback avoid permanent black/frozen output.
 
-- Real Chrome/Google Meet verification of remote output, camera switching,
-  camera-off behavior, permission prompts, page lifecycle, and unrelated-site
-  non-interference.
-- Browser-level media tests for segmentation quality, frame rate, sender
-  replacement, and visual mask boundaries.
-- Decide whether the final release should keep “Snap” as the extension name
-  under the Veyl project or rename every user-facing identifier to Veyl.
+### Camera-based gesture trigger
 
-## Checks run
+- Removed the active microphone-based detector and its audio resource path.
+- Added a locally bundled MediaPipe `HandLandmarker` model.
+- Added GPU-first/CPU fallback hand-landmarker initialization.
+- Added a temporal thumb–middle contact then quick inward-curl state machine:
+  stable appearance/contact, timestamp-based palm/aspect-normalized motion,
+  multi-frame release confirmation, hand-loss handling, and cooldown.
+- Filters reject static/slow releases, thumb-only motion, waves, translation,
+  camera approach/scale changes, identity jumps, gaps, and malformed landmarks.
+- Singleton model construction is cancellation-safe across WASM resolution and
+  late GPU/CPU creation; buffers are reused and masks are released after reading.
+- Added popup controls for enablement, sensitivity, cooldown, hand-tracked
+  status, and manual fallback controls.
+- No microphone permission is requested for gesture detection.
 
-- `npm ci` — repaired the copied Linux ARM64 esbuild installation with the
-  lockfile’s macOS ARM64 optional package.
-- `npm run typecheck` — passed after the camera/bridge changes.
-- `npm test` — 7 tests passed.
-- `npm run build` — passed on macOS ARM64 and produced a validated `dist/`.
+### Veyl identity and assets
+
+- Manifest, package metadata, popup title, action title, descriptions, errors,
+  status copy, README, and tests use Veyl branding.
+- Added PNG icons at 16, 32, 48, and 128 pixels.
+- Added vector mark: `assets/brand/veyl-mark.svg`.
+- Added promotional cover artwork:
+  `assets/promotional/veyl-cover.svg` and 1600×900 PNG, plus original outlined
+  wordmark, room/person illustration, 440×280 tile and 1400×560 marquee uploads.
+- Eight PNGs reproduce byte-for-byte with `scripts/generate-artwork.py --check`;
+  source/usage/font notes are in `docs/BRAND_ASSETS.md`. Illustrations are not
+  screenshots or evidence of live-site operation.
+- Popup displays:
+  `VEYL` / `Present, not visible.`
+
+### Build and tests
+
+- Existing macOS ARM64 esbuild installation remains reproducible with
+  `npm ci` and the committed lockfile.
+- Build output is staged, validated, and promoted using rollback-safe staged
+  renames (not an atomic filesystem exchange). Previous output is preserved if
+  promotion fails; if rollback also fails, its recovery path is reported.
+- Validation requires all icon/model metadata, PNG dimensions/signatures, model
+  sizes/checksums, UI/scripts/notices, and valid SIMD/non-SIMD WASM modules.
+- Model provenance is in `public/models/models.json`; runtime license/notices
+  under `public/licenses/` are copied into the package. The build also preserves
+  marked legal comments if present in upstream sources.
+- Behavioral tests exercise permission/migration/persistence, real pipeline and
+  integration behavior at mocked browser/ML boundaries, model-wrapper cleanup,
+  temporal gestures, bridge commands/BFCache, and build failure recovery.
+
+## Automated verification
+
+Last run on October 21, 2026, macOS ARM64, Node 26.9.0 / npm 11.19.1.
+Typecheck and tests were each run with a five-minute timeout:
+
+- `npm run typecheck` — passed.
+- `npm test` — **184 passed, 0 failed, 0 skipped**.
+- `npm run build` — passed.
+- `npm run check` is the convenience sequence: typecheck, build, tests. The
+  individual commands above were executed against the current code/package.
+- `python3 scripts/generate-artwork.py --check` — all eight PNGs matched.
+- `git diff --check` — passed.
+- No lint command is configured in `package.json`.
+
+### Real browser smoke (synthetic only)
+
+Executed against the fresh `dist/` package with an isolated temporary profile:
+
+```sh
+BROWSER_BIN="/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" npm run test:browser
+```
+
+`TMPDIR` was set to the environment's approved scratch directory for this run.
+Brave 155.1.97.59 reported Chromium `Chrome/155.0.8059.85`. Results:
+
+- Unpacked extension identity: **Veyl — Live Camera Effects**.
+- Browser accepted explicit-port script registration.
+- Both real bundled MediaPipe models ready.
+- Local receiving peer decoded replacement plate `[186, 34, 70, 255]` for target
+  `[192, 32, 64]` within the test's compression tolerance.
+- Reappearance restored current live imagery.
+- Disablement restored the original sender track and ended the processed track.
+- Microphone requests: **0**; camera input was browser-generated synthetic video.
+
+The fixture directly injects/authorizes the production page bridge. It does not
+test popup Chrome permission prompts or the real content-script/worker activation
+path end-to-end, nor a Meet/OmeTV call, physical snap accuracy, or person-mask
+quality. Reported FPS is incidental headless telemetry, not a performance benchmark.
+
+The generated `dist/` package contains:
+
+- `manifest.json`
+- `content.js`
+- `page-bridge.js`
+- `background.js`
+- `popup.html`, `popup.js`, `popup.css`
+- `icons/veyl-16.png`, `veyl-32.png`, `veyl-48.png`, `veyl-128.png`
+- `models/selfie_segmenter.tflite`
+- `models/hand_landmarker.task`
+- `models/models.json`
+- `licenses/NOTICE.md`, `licenses/Apache-2.0.txt`
+- MediaPipe `wasm/` assets
 
 ## Manual verification still required
 
-1. Load `dist/` as an unpacked extension in Chrome.
-2. Open a Google Meet call, turn on the camera, and verify the processed
-   stream is the camera seen by other participants (not only a local canvas).
-3. Capture a clean plate, move in frame, toggle disappearance, reappear, and
-   test camera changes, tab reloads, permission denial, and call teardown.
-4. Opt into snap detection, verify microphone permission, sensitivity,
-   cooldown, and that disabling it stops tracks and closes the audio context.
+Google Chrome is not installed here. The isolated Brave synthetic test above is
+available, but no real Meet/OmeTV call or physical camera/gesture test was made.
+Do not claim these manual Chrome checks are complete:
 
-## Reconciled project requirements
+### Google Meet regression gate
 
-The original project prompt is now available and is the source of truth for
-the implementation. The required user-visible result is a real Manifest V3
-Chrome extension for Google Meet that continuously processes a live camera,
-uses local person segmentation, removes the person from the outgoing track,
-supports a captured background plate, and allows immediate reappearance from
-the current live frame. It must not be only a popup or local preview.
+1. Load `dist/` at `chrome://extensions` and confirm the displayed name is
+   **Veyl — Live Camera Effects**.
+2. Reload Meet after extension reload so the early built-in bridge is present.
+3. Verify normal camera and microphone behavior with Veyl globally disabled.
+4. Enable Veyl, turn on the camera, and confirm the remote participant sees
+   the processed track, not merely a local canvas.
+5. Capture a clean plate, disappear, reappear, switch cameras, turn the
+   camera off/on, leave/rejoin, reload the tab, and reload the extension.
+6. Enable camera gesture detection and confirm no microphone permission prompt
+   occurs; test thumb–middle contact/quick inward curl, held gestures, cooldown,
+   low light, occlusion, and hand distance.
 
-Required behavior includes:
+### OmeTV priority test
 
-- Two disappearance modes: a lightweight captured-background mode and a
-  hybrid real-time segmentation mode.
-- Actual delivery of the processed `MediaStreamTrack` to Google Meet, with
-  normal microphone audio preserved and the original camera restored or left
-  usable when processing fails.
-- Background capture, preview, recapture, deletion, local persistence, and a
-  visible warning when the camera/plate alignment is unreliable.
-- Mask confidence handling, temporal smoothing, edge refinement, adaptive
-  inference, and an honest fallback when hidden scenery cannot be
-  reconstructed.
-- Disappearance and reappearance transitions that end in a fully correct
-  live frame, plus optional particle/shockwave effects.
-- Keyboard activation and opt-in local snap detection with sensitivity,
-  cooldown, permission/error UX, and complete microphone/audio cleanup.
-- Google Meet-only integration, narrow permissions, no remote executable
-  code, no uploads or recordings, and cleanup for camera changes, tab/call
-  lifecycle, permissions, and failures.
-- A practical test plan, installation/Chrome loading instructions, privacy
-  documentation, limitations, troubleshooting, and no claims beyond what was
-  actually verified.
+The official page loader and application bundle were inspected during this
+change. They showed a top-page permission probe, selected-device camera
+reacquisition, local preview, and `addTrack`/`replaceTrack` transmission. The
+shared integration was hardened for these flows, rather than adding an
+unevidenced site-specific adapter or any virtual-camera protection bypass.
+Recorded source URLs and test steps are in `README.md`. Static investigation is
+not evidence of remote-call success.
 
-The original prompt calls the extension “Snap” while the project/product
-brief calls the project “Veyl.” This implementation will preserve “Snap” as
-the user-facing effect/extension name under the Veyl project identity unless
-the product brief is later changed; the README will make that relationship
-explicit rather than silently renaming existing files.
+1. Enable the exact OmeTV origin from the popup and approve permission.
+2. Reload OmeTV before its camera starts.
+3. Verify Veyl’s processed route reaches the actual remote connection using a
+   second account/device.
+4. Test background capture, disappearance, reappearance, camera switching,
+   permission denial, navigation, and global/site disablement.
+5. If only a local preview changes, mark OmeTV as incompatible rather than
+   claiming support.
 
-## Reconciled remaining tasks
+### Other compatible websites
 
-### Completed in this session
+- Test exact-origin enablement and no injection before enablement.
+- Test sites that use `getUserMedia` plus `addTrack`, `addTransceiver`, or
+  `replaceTrack`.
+- Test sites that use a preview without WebRTC and report the limitation.
+- Confirm embedded camera frames remain unmodified: injection is top-frame-only,
+  even if the embedded origin has a separately enabled profile.
+- Test permission removal, dynamic-script removal, page navigation, BFCache,
+  extension reload, and camera teardown.
 
-- Reinstalled npm dependencies from the existing lockfile so the macOS ARM64
-  esbuild binary is used, and made build output atomic and self-validating.
-- Installed the page-world hook synchronously at `document_start`, before
-  asynchronous storage initialization can miss Meet’s first camera request.
-- Added local diagnostics for processed-track identity and active WebRTC sender
-  usage through `getUserMedia`, `addTrack`, `addTransceiver`, and
-  `replaceTrack` routing.
-- Separated input-camera ownership, processed-video ownership, and microphone
-  ownership; serialized camera attachment and added lifecycle/model disposal.
-- Hardened camera-off, pagehide/pageshow, repeated initialization, error
-  recovery, background validation, reappearance transitions, and degraded
-  compositing behavior.
-- Persisted popup settings/background deletion without requiring an active Meet
-  tab, completed the README, and added seven automated architecture/package
-  tests.
+## Known limitations and next work
 
-### Core effect correctness
-
-The remaining core work is browser validation rather than an unimplemented
-placeholder:
-
-- Confirm segmentation/model loading and visual mask quality in Chrome.
-- Confirm the remote participant receives the processed track in Google Meet.
-- Confirm Meet camera switching and sender renegotiation do not interrupt the
-  microphone or leave stale streams.
-
-### Product quality and evidence
-
-- Add deeper browser/media tests if Chrome automation becomes available.
-- Decide whether the final release should keep “Snap” as the extension name
-  under the Veyl project or rename every user-facing identifier to Veyl.
-- Add a dedicated segmentation-mask development preview only if it is needed
-  for visual model tuning; it is not exposed in the current production popup.
-
-## Latest verification state
-
-The original requirements have been reconciled with the working tree and the
-highest-priority build/media-path implementation has been completed as far as
-this non-browser environment allows. The remaining acceptance evidence is
-manual Chrome/Google Meet testing:
-
-- `npm ci` — passed and repaired the platform-specific esbuild installation.
-- `npm run check` — passed: typecheck, 7 tests, and build.
-- `dist/` — contains the manifest, four bundled scripts, popup assets, local
-  model, and MediaPipe WASM assets.
-- No lint command is configured in `package.json`.
+- A visual contact/inward-curl sequence is a heuristic approximation of a snap; a
+  camera cannot verify the snap sound without microphone input, which Veyl
+  deliberately does not request.
+- Hand-landmarker and person-segmentation quality, frame rate, and GPU
+  behavior need real Chrome validation on Apple Silicon and ordinary laptops.
+- The current WebRTC binding registry is substantially safer than the original
+  single-track route, but multi-peer/camera-switch behavior needs browser
+  coverage on each target site.
+- One processed view is shared per tab; simultaneous independent camera views
+  and embedded-frame applications are not supported guarantees.
+- Page-world hooks share the site’s JavaScript environment and can be altered
+  by a host page. Veyl is designed for compatible sites, not hostile-page
+  isolation.
+- OmeTV and other non-Meet sites are not claimed complete until remote output
+  is manually verified.
+- Future site-specific adapters should be added only when a target’s actual
+  camera/WebRTC behavior demonstrates that the shared route is insufficient.

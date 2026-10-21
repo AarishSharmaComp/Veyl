@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="560" viewBox="0 0 1400 560" role="img" aria-labelledby="title desc">
+  <title id="title">Veyl marquee — Present, not visible.</title>
+  <desc id="desc">Wide original promotional composition. An identifiable person fades into violet particles while the furnished room stays visible, including through their disappearing side. This is illustration, not an actual browser screenshot.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1400" y2="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#171420"/>
+      <stop offset="1" stop-color="#0d0d16"/>
+    </linearGradient>
+    <radialGradient id="aura" cx="1060" cy="240" r="530" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9662d7" stop-opacity=".15"/>
+      <stop offset="1" stop-color="#9662d7" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1400" height="560" fill="url(#background)"/>
+  <rect width="1400" height="560" fill="url(#aura)"/>
+  <image href="../brand/veyl-mark.svg" x="67" y="43" width="65" height="65"/>
+  <image href="../brand/veyl-wordmark.svg" x="148" y="54" width="166" height="42.84"/>
+  <image href="veyl-room.svg" x="635" y="-8" width="720" height="576"/>
+  <g font-family="Arial, Liberation Sans, DejaVu Sans, sans-serif" font-kerning="none">
+    <text x="72" y="177" fill="#b58bec" font-size="13" font-weight="700" letter-spacing="2.5">LIVE CAMERA EFFECTS</text>
+    <text x="66" y="274" fill="#f4effc" font-size="78" font-weight="700" letter-spacing="-2.5">Present,</text>
+    <text x="66" y="362" fill="#c1a0f6" font-size="78" font-weight="700" letter-spacing="-2.5">not visible.</text>
+    <text x="72" y="414" fill="#aaa2b8" font-size="21">Your room stays. You fade.</text>
+    <text x="72" y="502" fill="#82798f" font-size="13" letter-spacing="1">LOCAL-FIRST CAMERA EFFECTS</text>
+    <text x="1328" y="550" fill="#82798f" font-size="10" text-anchor="end" letter-spacing="1">EFFECT ILLUSTRATION</text>
+  </g>
+</svg>

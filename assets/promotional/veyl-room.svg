@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="720" viewBox="0 0 900 720" role="img" aria-labelledby="title desc">
+  <title id="title">The room stays. A person fades.</title>
+  <desc id="desc">Original editorial illustration of a curly-haired person in a violet sweatshirt dissolving from right to left into lilac fragments. Their face and raised hand remain recognizable. The window, desk, monitor, chair, books, lamp, and plants remain visible, including through the disappearing half of the person. This is an effect illustration, not a product screenshot.</desc>
+  <defs>
+    <linearGradient id="wall" x1="180" y1="50" x2="780" y2="620" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#454258"/>
+      <stop offset="1" stop-color="#252434"/>
+    </linearGradient>
+    <linearGradient id="window" x1="160" y1="89" x2="230" y2="311" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#c1b5e5"/>
+      <stop offset=".62" stop-color="#8b94c2"/>
+      <stop offset="1" stop-color="#656e9b"/>
+    </linearGradient>
+    <linearGradient id="floor" x1="460" y1="516" x2="460" y2="672" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#24232e"/>
+      <stop offset="1" stop-color="#1b1b25"/>
+    </linearGradient>
+    <linearGradient id="desk" x1="160" y1="485" x2="730" y2="528" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a88786"/>
+      <stop offset="1" stop-color="#6c535f"/>
+    </linearGradient>
+    <linearGradient id="shirt" x1="360" y1="326" x2="516" y2="572" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a18bc9"/>
+      <stop offset=".48" stop-color="#8062ac"/>
+      <stop offset="1" stop-color="#5c4586"/>
+    </linearGradient>
+    <linearGradient id="skin" x1="404" y1="211" x2="478" y2="308" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#edbba8"/>
+      <stop offset="1" stop-color="#c3837e"/>
+    </linearGradient>
+    <radialGradient id="light" cx="635" cy="355" r="245" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#bc94fa" stop-opacity=".13"/>
+      <stop offset="1" stop-color="#bc94fa" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="room-clip"><rect x="30" y="28" width="840" height="644" rx="34"/></clipPath>
+    <clipPath id="solid-person"><path d="M260 165 L456 165 L465 241 L452 274 L462 321 L449 363 L466 393 L450 431 L463 461 L450 501 L458 538 L444 576 L260 576 Z"/></clipPath>
+    <clipPath id="fading-person"><path d="M456 165 L493 165 L501 267 L481 307 L498 353 L485 395 L501 442 L482 485 L492 530 L471 578 L444 578 L458 538 L450 501 L463 461 L450 431 L466 393 L449 363 L462 321 L452 274 L465 241 Z"/></clipPath>
+    <clipPath id="person-fragments">
+      <path d="M490 197 L508 201 L507 218 L491 219 Z M490 245 L508 237 L514 251 L498 262 Z M498 330 L520 335 L516 355 L496 350 Z M509 373 L534 379 L531 402 L508 396 Z M499 421 L521 414 L529 437 L506 444 Z M491 468 L512 470 L507 489 L487 489 Z M493 518 L514 512 L519 532 L496 539 Z M471 550 L489 547 L490 565 L474 568 Z"/>
+    </clipPath>
+    <g id="person">
+      <!-- Deliberately detailed human features, not an anonymous silhouette. -->
+      <path d="M383 554 L496 554 L507 591 L482 615 L361 615 Z" fill="#323143"/>
+      <path d="M424 289 L423 328 L397 342 L444 366 L478 335 L461 320 L461 281 Z" fill="url(#skin)"/>
+      <path d="M421 302 Q445 319 462 295 L462 315 Q441 335 422 317 Z" fill="#ae6d70" opacity=".48"/>
+      <path d="M399 326 Q420 337 441 338 Q461 339 480 322 Q516 335 530 369 L548 443 L506 461 L494 405 L500 555 Q437 581 369 556 L374 405 L359 471 L323 455 L337 378 Q348 340 399 326 Z" fill="url(#shirt)"/>
+      <path d="M399 326 Q419 362 445 360 Q468 359 480 322" fill="none" stroke="#c4a8e9" stroke-width="6" stroke-linecap="round"/>
+      <path d="M376 376 Q386 426 375 489 M405 532 Q441 545 476 531" fill="none" stroke="#534074" stroke-width="3" stroke-linecap="round" opacity=".65"/>
+      <path d="M391 341 Q370 350 358 381" fill="none" stroke="#c3a9e6" stroke-width="3" stroke-linecap="round"/>
+      <!-- Bent left arm and open hand are a second clear human cue. -->
+      <path d="M338 419 L327 456 Q321 471 312 458 L292 397 L315 389 Z" fill="url(#skin)"/>
+      <path d="M294 400 Q283 391 282 376 L281 348 Q282 342 287 345 L292 368 L294 332 Q296 325 301 331 L302 363 L308 326 Q312 321 315 329 L312 365 L320 342 Q324 338 327 344 L321 380 Q320 394 311 401 Z" fill="url(#skin)"/>
+      <path d="M289 374 L303 384 L315 374" fill="none" stroke="#bc807c" stroke-width="2" stroke-linecap="round"/>
+      <path d="M404 217 Q396 250 408 280 Q418 306 441 310 Q465 310 480 284 Q491 260 480 219 L455 195 Z" fill="url(#skin)"/>
+      <ellipse cx="403" cy="255" rx="10" ry="15" fill="#df9d92"/>
+      <path d="M406 249 Q399 248 403 261" fill="none" stroke="#b87676" stroke-width="2" stroke-linecap="round"/>
+      <path d="M399 240 Q382 218 397 198 Q393 180 413 179 Q425 160 445 175 Q463 165 475 182 Q494 182 496 204 Q509 218 490 242 L480 252 L474 225 Q447 236 421 217 L411 239 Z" fill="#272331"/>
+      <circle cx="408" cy="196" r="15" fill="#302939"/>
+      <circle cx="431" cy="187" r="15" fill="#352c3d"/>
+      <circle cx="454" cy="189" r="15" fill="#302939"/>
+      <circle cx="478" cy="202" r="13" fill="#302939"/>
+      <path d="M404 187 Q416 178 424 185 M437 178 Q449 174 456 183" fill="none" stroke="#675069" stroke-width="3" stroke-linecap="round"/>
+      <path d="M418 246 Q425 241 432 245 M452 245 Q459 241 466 246" fill="none" stroke="#4c343f" stroke-width="3" stroke-linecap="round"/>
+      <ellipse cx="426" cy="252" rx="2.7" ry="3.3" fill="#302735"/>
+      <ellipse cx="460" cy="252" rx="2.7" ry="3.3" fill="#302735"/>
+      <path d="M442 252 L438 268 L445 269" fill="none" stroke="#b57676" stroke-width="2" stroke-linecap="round"/>
+      <path d="M430 282 Q441 289 453 280" fill="none" stroke="#784f5a" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M417 276 Q418 296 440 302 Q460 302 470 279 Q456 295 442 294 Q426 294 417 276 Z" fill="#694550" opacity=".36"/>
+    </g>
+  </defs>
+  <rect x="30" y="40" width="840" height="644" rx="34" fill="#080910" opacity=".48"/>
+  <g clip-path="url(#room-clip)">
+    <rect x="30" y="28" width="840" height="644" fill="url(#wall)"/>
+    <path d="M30 525 L870 525 L870 672 L30 672 Z" fill="url(#floor)"/>
+    <path d="M30 526 L870 526" fill="none" stroke="#676073" stroke-width="2" opacity=".4"/>
+    <path d="M30 654 L338 526 M499 672 L545 526 M870 641 L719 526" fill="none" stroke="#393340" stroke-width="2"/>
+    <!-- Window and outdoor landscape, drawn from geometry, no photography. -->
+    <rect x="78" y="82" width="228" height="238" rx="10" fill="#242231"/>
+    <rect x="87" y="91" width="210" height="220" rx="4" fill="url(#window)"/>
+    <circle cx="247" cy="139" r="23" fill="#ded0e9" opacity=".8"/>
+    <path d="M87 253 Q130 209 176 246 Q226 202 297 239 L297 311 L87 311 Z" fill="#767ca5"/>
+    <path d="M87 285 Q151 245 208 281 Q250 258 297 270 L297 311 L87 311 Z" fill="#606b92"/>
+    <path d="M190 91 L190 311 M87 204 L297 204" fill="none" stroke="#454153" stroke-width="7"/>
+    <rect x="70" y="314" width="244" height="10" rx="3" fill="#8b7e93"/>
+    <path d="M87 324 L297 324 L400 525 L55 525 Z" fill="#c8b3df" opacity=".035"/>
+    <!-- Framed original abstract landscape. -->
+    <rect x="540" y="108" width="109" height="144" rx="3" fill="#b79591"/>
+    <rect x="547" y="115" width="95" height="130" fill="#e0c6b5"/>
+    <circle cx="591" cy="155" r="20" fill="#bb8195"/>
+    <path d="M547 210 L578 178 L609 214 L642 191 L642 245 L547 245 Z" fill="#776483"/>
+    <path d="M547 230 Q591 203 642 226 L642 245 L547 245 Z" fill="#4c4d68"/>
+    <!-- Shelf with books and a small ceramic object. -->
+    <rect x="635" y="335" width="166" height="10" rx="3" fill="#947e85"/>
+    <rect x="651" y="283" width="14" height="52" rx="2" fill="#7f8f9e"/>
+    <rect x="668" y="275" width="19" height="60" rx="2" fill="#c39796"/>
+    <rect x="690" y="288" width="13" height="47" rx="2" fill="#9f8cb7"/>
+    <path d="M714 285 L726 282 L740 332 L728 335 Z" fill="#b8b1be"/>
+    <path d="M758 301 Q745 319 756 335 L778 335 Q790 318 776 301 L774 289 L761 289 Z" fill="#605f77"/>
+    <path d="M658 292 L658 315 M675 284 L680 284" fill="none" stroke="#d7c5d7" stroke-width="2" opacity=".6"/>
+    <!-- Floor lamp. -->
+    <ellipse cx="748" cy="611" rx="43" ry="10" fill="#15141e"/>
+    <path d="M747 217 L747 602" fill="none" stroke="#aca0af" stroke-width="5"/>
+    <ellipse cx="747" cy="603" rx="37" ry="6" fill="#6c6074"/>
+    <path d="M715 159 L778 159 L806 221 L686 221 Z" fill="#b7a3be"/>
+    <ellipse cx="746" cy="221" rx="60" ry="9" fill="#d4b9ce"/>
+    <path d="M699 229 L795 229 L846 522 L648 522 Z" fill="#edc6cf" opacity=".035"/>
+    <rect x="30" y="28" width="840" height="644" fill="url(#light)"/>
+    <ellipse cx="436" cy="628" rx="234" ry="31" fill="#393044"/>
+    <ellipse cx="436" cy="627" rx="208" ry="23" fill="none" stroke="#62506d" stroke-width="1.5"/>
+    <!-- Empty chair and desk are drawn before the person, so removal reveals them. -->
+    <rect x="365" y="348" width="166" height="204" rx="41" fill="#232533" stroke="#747184" stroke-width="3"/>
+    <rect x="379" y="362" width="137" height="171" rx="31" fill="#353645"/>
+    <path d="M409 374 L409 521 M449 372 L449 525 M487 375 L487 519" fill="none" stroke="#4c495c" stroke-width="2"/>
+    <rect x="112" y="516" width="17" height="118" rx="3" fill="#65505e"/>
+    <rect x="697" y="516" width="17" height="118" rx="3" fill="#65505e"/>
+    <path d="M96 487 L713 487 L755 515 L76 515 Z" fill="url(#desk)"/>
+    <rect x="76" y="515" width="679" height="14" rx="3" fill="#705561"/>
+    <path d="M86 516 L743 516" fill="none" stroke="#cba6a2" stroke-width="2" opacity=".5"/>
+    <!-- Monitor, keyboard, notebook, and coffee cup. -->
+    <path d="M248 452 L248 485 L277 485" fill="none" stroke="#292835" stroke-width="8" stroke-linecap="round"/>
+    <rect x="185" y="354" width="146" height="101" rx="8" fill="#20202b" stroke="#6a6479" stroke-width="2"/>
+    <rect x="194" y="363" width="128" height="82" rx="3" fill="#424559"/>
+    <path d="M194 421 L233 389 L276 415 L303 390 L322 404 L322 445 L194 445 Z" fill="#686184"/>
+    <circle cx="287" cy="383" r="9" fill="#bda5cb"/>
+    <path d="M209 492 L309 492 L323 502 L198 502 Z" fill="#b0a0b0"/>
+    <path d="M574 482 L627 477 L646 495 L590 501 Z" fill="#c7b1b2"/>
+    <path d="M584 486 L626 482 M588 490 L630 486" fill="none" stroke="#89758d" stroke-width="1.5"/>
+    <path d="M664 466 L681 466 L679 490 Q672 494 665 490 Z" fill="#c8b0b6"/>
+    <path d="M682 471 Q695 471 687 481 L680 482" fill="none" stroke="#c8b0b6" stroke-width="3"/>
+    <!-- Desk plant. -->
+    <path d="M130 452 L132 399 M131 432 Q105 418 104 395 M133 417 Q155 405 159 382" fill="none" stroke="#84aaa2" stroke-width="3" stroke-linecap="round"/>
+    <path d="M131 417 Q109 409 111 389 Q132 390 131 417 Z M137 409 Q139 384 159 382 Q159 402 137 409 Z M130 436 Q105 436 99 419 Q119 414 130 436 Z M134 395 Q117 383 127 366 Q144 376 134 395 Z" fill="#7ca29b"/>
+    <path d="M108 450 L151 450 L146 485 L115 485 Z" fill="#ae8288"/>
+    <ellipse cx="130" cy="450" rx="22" ry="4" fill="#c89da1"/>
+    <!-- Taller floor plant. -->
+    <path d="M785 561 L785 447 M783 511 L755 480 M786 489 L817 460" fill="none" stroke="#71958d" stroke-width="4" stroke-linecap="round"/>
+    <path d="M783 516 Q745 511 744 476 Q774 481 783 516 Z M788 492 Q788 454 823 448 Q824 479 788 492 Z M784 472 Q759 445 780 419 Q803 438 784 472 Z M788 541 Q804 510 836 515 Q827 544 788 541 Z" fill="#73978f"/>
+    <path d="M751 551 L817 551 L807 610 L762 610 Z" fill="#8b727d"/>
+    <ellipse cx="784" cy="551" rx="33" ry="6" fill="#b3989f"/>
+    <rect x="350" y="560" width="191" height="25" rx="12" fill="#3d3b4f" stroke="#71677e" stroke-width="2"/>
+    <path d="M446 586 L446 630 M446 617 L393 640 M446 617 L503 640" fill="none" stroke="#6f657c" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="390" cy="642" r="7" fill="#171822"/>
+    <circle cx="505" cy="642" r="7" fill="#171822"/>
+    <use href="#person" clip-path="url(#solid-person)"/>
+    <use href="#person" clip-path="url(#fading-person)" opacity=".46"/>
+    <use href="#person" clip-path="url(#person-fragments)" opacity=".68"/>
+    <!-- Fixed vector fragments are the same in every layout and raster export. -->
+    <g fill="#c5a3ff">
+      <path d="M511 183 L524 178 L531 191 L517 196 Z M539 234 L553 239 L549 253 L536 248 Z M529 298 L546 298 L546 315 L529 315 Z M551 345 L572 350 L567 370 L547 364 Z M544 410 L558 403 L565 418 L550 425 Z M535 458 L550 459 L550 474 L535 473 Z M523 501 L539 497 L543 513 L527 518 Z M510 554 L519 549 L525 559 L515 565 Z"/>
+      <rect x="571" y="278" width="11" height="11" rx="2"/>
+      <rect x="593" y="382" width="13" height="13" rx="2"/>
+      <rect x="570" y="489" width="10" height="10" rx="2"/>
+      <circle cx="554" cy="208" r="3"/>
+      <circle cx="595" cy="330" r="4"/>
+      <circle cx="614" cy="452" r="4"/>
+      <circle cx="557" cy="537" r="3"/>
+    </g>
+    <g fill="#e6d5ff" opacity=".8">
+      <circle cx="609" cy="227" r="3"/>
+      <circle cx="640" cy="286" r="3.5"/>
+      <circle cx="658" cy="389" r="3"/>
+      <circle cx="640" cy="509" r="3"/>
+      <path d="M574 174 L579 171 L582 176 L577 180 Z M630 352 L637 352 L637 359 L630 359 Z M587 560 L594 558 L596 565 L589 567 Z"/>
+    </g>
+    <g fill="#dfa7bb">
+      <circle cx="580" cy="427" r="4"/>
+      <circle cx="613" cy="184" r="2.5"/>
+      <rect x="609" y="301" width="6" height="6" rx="1"/>
+      <rect x="680" y="461" width="5" height="5" rx="1"/>
+    </g>
+    <path d="M545 270 Q591 253 628 261 M571 527 Q611 523 643 497" fill="none" stroke="#b38ce3" stroke-width="1.5" stroke-linecap="round" opacity=".32"/>
+  </g>
+  <rect x="30" y="28" width="840" height="644" rx="34" fill="none" stroke="#8a729f" stroke-width="1.5" opacity=".5"/>
+</svg>

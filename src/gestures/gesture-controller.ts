@@ -1,10 +1,11 @@
 export class GestureController {
-  private lastToggleAt = 0;
+  private lastToggleAt = -Infinity;
 
   constructor(private readonly onToggle: () => void) {}
 
   attach(): () => void {
     const listener = (event: KeyboardEvent) => {
+      if (event.repeat) return;
       if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey || event.key.toLowerCase() !== 'x') return;
       const target = event.target as HTMLElement | null;
       if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')) return;

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Veyl — folded veil mark</title>
+  <desc id="desc">Two violet folds form a V around a small absent center, inside an inset rounded obsidian square. The outside corners are transparent.</desc>
+  <defs>
+    <linearGradient id="container" x1="18" y1="9" x2="105" y2="122" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#262135"/>
+      <stop offset="1" stop-color="#0d0d16"/>
+    </linearGradient>
+    <linearGradient id="left-veil" x1="29" y1="31" x2="67" y2="101" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d8c5ff"/>
+      <stop offset=".48" stop-color="#ae83ff"/>
+      <stop offset="1" stop-color="#8a56df"/>
+    </linearGradient>
+    <linearGradient id="right-veil" x1="98" y1="32" x2="63" y2="101" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#bc98ff"/>
+      <stop offset="1" stop-color="#6b42bf"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="30" fill="url(#container)" stroke="#4b3c65" stroke-width="2"/>
+  <path d="M28 32 C43 35 54 44 63 59 C68 71 69 85 64 100 C45 87 31 65 28 32 Z" fill="url(#left-veil)"/>
+  <path d="M100 32 C85 35 74 44 65 59 C60 71 59 85 64 100 C83 87 97 65 100 32 Z" fill="url(#right-veil)"/>
+  <path d="M46 31 C55 41 60 52 61 65 C62 77 59 87 55 94 L64 100 L64 63 C60 48 54 37 46 31 Z" fill="#f1e9ff"/>
+  <path d="M82 31 C73 41 68 52 67 65 C66 77 69 87 73 94 L64 100 L64 63 C68 48 74 37 82 31 Z" fill="#d5bdff"/>
+  <circle cx="64" cy="64" r="5.5" fill="#100e1c"/>
+  <circle cx="64" cy="64" r="2.3" fill="#b78bff"/>
+</svg>

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="248" height="64" viewBox="0 0 248 64" role="img" aria-labelledby="title desc">
+  <title id="title">Veyl wordmark</title>
+  <desc id="desc">Original geometric VEYL lettering, drawn as outlines rather than a font.</desc>
+  <g fill="#f4effc">
+    <path d="M0 8 L12 8 L31 48 L50 8 L62 8 L37 60 L25 60 Z"/>
+    <path d="M77 8 L119 8 L119 18 L88 18 L88 29 L115 29 L115 39 L88 39 L88 50 L119 50 L119 60 L77 60 Z"/>
+    <path d="M132 8 L145 8 L162 31 L179 8 L192 8 L168 42 L168 60 L156 60 L156 42 Z"/>
+    <path d="M207 8 L219 8 L219 50 L248 50 L248 60 L207 60 Z"/>
+  </g>
+</svg>

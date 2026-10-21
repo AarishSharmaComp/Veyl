@@ -1,14 +1,28 @@
 {
   "manifest_version": 3,
-  "name": "Snap — Live Disappearance",
+  "name": "Veyl — Live Camera Effects",
+  "short_name": "Veyl",
   "version": "0.1.0",
-  "description": "A local-first person disappearance effect for Google Meet camera video.",
+  "description": "Present, not visible. Local camera effects for websites you choose.",
   "minimum_chrome_version": "111",
-  "permissions": ["storage"],
+  "permissions": ["storage", "scripting", "activeTab"],
   "host_permissions": ["https://meet.google.com/*"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "icons": {
+    "16": "icons/veyl-16.png",
+    "32": "icons/veyl-32.png",
+    "48": "icons/veyl-48.png",
+    "128": "icons/veyl-128.png"
+  },
   "action": {
-    "default_title": "Snap",
-    "default_popup": "popup.html"
+    "default_title": "Veyl",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/veyl-16.png",
+      "32": "icons/veyl-32.png",
+      "48": "icons/veyl-48.png",
+      "128": "icons/veyl-128.png"
+    }
   },
   "background": {
     "service_worker": "background.js"
@@ -17,9 +31,9 @@
     "toggle-disappearance": {
       "suggested_key": {
         "default": "Ctrl+Shift+X",
-        "mac": "MacCtrl+Shift+X"
+        "mac": "Command+Shift+X"
       },
-      "description": "Toggle Snap disappearance in the active Google Meet tab"
+      "description": "Toggle Veyl camera effects in the active enabled tab"
     }
   },
   "content_scripts": [
@@ -38,7 +52,7 @@
   "web_accessible_resources": [
     {
       "resources": ["models/*", "wasm/*"],
-      "matches": ["https://meet.google.com/*"]
+      "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"]
     }
   ],
   "content_security_policy": {

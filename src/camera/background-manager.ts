@@ -3,8 +3,11 @@ import { BackgroundPlate } from '../shared/types';
 export class BackgroundManager {
   private plate: BackgroundPlate | null = null;
   private image: HTMLImageElement | null = null;
+  private revision = 0;
 
   async setPlate(plate: BackgroundPlate | null): Promise<void> {
+    if (plate && this.ready && plate.dataUrl === this.plate?.dataUrl) return;
+    const revision = ++this.revision;
     if (!plate) {
       this.plate = null;
       this.image = null;
@@ -17,6 +20,7 @@ export class BackgroundManager {
     const image = new Image();
     image.decoding = 'async';
     await loadImage(image, plate.dataUrl);
+    if (revision !== this.revision) return;
     if (!image.naturalWidth || !image.naturalHeight) throw new Error('The saved background image is empty.');
     this.plate = plate;
     this.image = image;
@@ -39,16 +43,17 @@ export class BackgroundManager {
       throw new Error('The camera returned invalid dimensions for background capture.');
     }
     const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
+    const scale = Math.min(1, 1280 / width, 720 / height);
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Canvas is unavailable for background capture.');
-    context.drawImage(video, 0, 0, width, height);
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     return {
       dataUrl: canvas.toDataURL('image/jpeg', 0.92),
-      width,
-      height,
+      width: canvas.width,
+      height: canvas.height,
       capturedAt: Date.now()
     };
   }

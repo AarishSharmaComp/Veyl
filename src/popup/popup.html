@@ -4,27 +4,40 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="popup.css" />
-    <title>Snap</title>
+    <title>Veyl</title>
   </head>
   <body>
     <main class="app-shell">
       <header class="app-header">
-        <div class="brand-mark" aria-hidden="true">
-          <span></span><span></span><span></span>
-        </div>
+        <img class="brand-logo" src="icons/veyl-32.png" alt="Veyl logo" />
         <div>
-          <div class="eyebrow">VEYL LABS</div>
-          <h1>Snap</h1>
+          <div class="eyebrow">LIVE CAMERA STUDIO</div>
+          <h1>VEYL</h1>
           <div class="tagline">Present, not visible.</div>
         </div>
         <div class="header-status" id="header-status"><span class="status-dot"></span><span>Offline</span></div>
       </header>
 
+      <section class="site-panel">
+        <div class="panel-heading">
+          <div><span class="section-kicker">CURRENT WEBSITE</span><h3 id="site-name">No supported website</h3></div>
+          <span class="mini-badge" id="site-badge">OFF</span>
+        </div>
+        <p class="panel-help" id="site-help">Open an HTTPS camera website, then enable Veyl for that origin.</p>
+        <div class="site-actions">
+          <button class="secondary-button" id="site-toggle" type="button" disabled>Enable on this site</button>
+          <button class="icon-button" id="site-remove" type="button" aria-label="Remove this site" title="Remove this site" disabled>×</button>
+        </div>
+        <label class="global-row"><span><strong>Veyl globally enabled</strong><small>Turn off to suspend effects everywhere.</small></span><input class="switch" id="global-toggle" type="checkbox" checked /><span class="switch-visual"></span></label>
+        <div class="site-add-row"><input id="site-input" type="text" inputmode="url" placeholder="https://example.com" aria-label="Website URL or domain" /><button class="secondary-button" id="site-add" type="button">Add website</button></div>
+        <div class="site-list" id="site-list" aria-label="Enabled websites"></div>
+      </section>
+
       <section class="hero-panel">
         <div class="hero-copy">
           <span class="section-kicker">LIVE CAMERA EFFECT</span>
-          <h2 id="hero-title">Ready when you are.</h2>
-          <p id="hero-subtitle">Open a Google Meet call to route your camera through Snap.</p>
+          <h2 id="hero-title">Enable Veyl when you are ready.</h2>
+          <p id="hero-subtitle">Choose an enabled website to route its camera through Veyl.</p>
         </div>
         <button class="disappear-button" id="toggle-effect" type="button" disabled>
           <span class="button-icon" aria-hidden="true">✦</span>
@@ -33,23 +46,23 @@
         </button>
       </section>
 
-      <section class="status-card" aria-label="Camera status">
+      <section class="status-card" aria-label="Veyl camera status">
         <div class="card-heading"><span>System status</span><span class="live-pill" id="processing-pill">IDLE</span></div>
         <div class="status-grid">
-          <div class="status-item"><span class="status-icon" id="meet-icon">○</span><span>Google Meet</span><strong id="meet-status">Not detected</strong></div>
+          <div class="status-item"><span class="status-icon" id="site-icon">○</span><span>Website</span><strong id="site-status">Waiting</strong></div>
           <div class="status-item"><span class="status-icon" id="camera-icon">○</span><span>Camera</span><strong id="camera-status">Waiting</strong></div>
-          <div class="status-item"><span class="status-icon" id="model-icon">○</span><span>Segmentation</span><strong id="model-status">Loading on demand</strong></div>
+          <div class="status-item"><span class="status-icon" id="model-icon">○</span><span>Segmentation</span><strong id="model-status">On demand</strong></div>
           <div class="status-item"><span class="status-icon" id="effect-icon">○</span><span>Effect</span><strong id="effect-status">Inactive</strong></div>
         </div>
-        <p class="status-message" id="status-message">Snap only runs on meet.google.com.</p>
+        <p class="status-message" id="status-message">Veyl is waiting for an enabled website.</p>
       </section>
 
       <section class="panel background-panel">
         <div class="panel-heading">
-          <div><span class="section-kicker">MODE A</span><h3>Background plate</h3></div>
+          <div><span class="section-kicker">SCENE PLATE</span><h3>Background plate</h3></div>
           <span class="mini-badge" id="background-badge">MISSING</span>
         </div>
-        <p class="panel-help">Step out of frame, then capture the empty room. A fixed camera gives the cleanest vanishing effect.</p>
+        <p class="panel-help">Step out of frame, then capture the empty room. A fixed camera gives the cleanest disappearance.</p>
         <div class="background-preview" id="background-preview">
           <div class="preview-placeholder"><span>▧</span><span>No background captured</span></div>
           <img id="background-image" alt="Captured room background" hidden />
@@ -66,15 +79,17 @@
         <label class="setting-row"><span><strong>Use background plate</strong><small>Fill pixels blocked by your body</small></span><input class="switch" id="plate-toggle" type="checkbox" /><span class="switch-visual"></span></label>
         <label class="setting-row"><span><strong>Disintegration animation</strong><small>Particles and a subtle shockwave</small></span><input class="switch" id="animation-toggle" type="checkbox" /><span class="switch-visual"></span></label>
         <div class="range-row"><div><strong>Animation intensity</strong><output id="intensity-value">70%</output></div><input id="intensity-slider" type="range" min="0" max="100" step="1" /></div>
-        <div class="select-row"><label for="performance-select"><strong>Performance mode</strong><small>Quality trades a little latency for softer edges</small></label><select id="performance-select"><option value="quality">Quality</option><option value="balanced">Balanced</option><option value="performance">Performance</option></select></div>
-        <div class="setting-row snap-setting"><span><strong>Finger snap detection</strong><small>Needs microphone permission; audio stays local</small></span><input class="switch" id="snap-toggle" type="checkbox" /><span class="switch-visual"></span></div>
-        <div class="range-row snap-range"><div><strong>Snap sensitivity</strong><output id="sensitivity-value">62%</output></div><input id="sensitivity-slider" type="range" min="0" max="100" step="1" /></div>
+        <div class="select-row"><label for="performance-select"><strong>Performance mode</strong><small>Quality trades latency for softer edges</small></label><select id="performance-select"><option value="quality">Quality</option><option value="balanced">Balanced</option><option value="performance">Performance</option></select></div>
+        <label class="setting-row gesture-setting"><span><strong>Camera snap trigger</strong><small>Thumb + middle contact, then a quick inward curl. No microphone.</small></span><input class="switch" id="gesture-toggle" type="checkbox" /><span class="switch-visual"></span></label>
+        <div class="range-row gesture-range"><div><strong>Snap sensitivity</strong><output id="sensitivity-value">62%</output></div><input id="sensitivity-slider" type="range" min="0" max="100" step="1" /></div>
+        <div class="range-row gesture-range"><div><strong>Gesture cooldown</strong><output id="cooldown-value">1.1s</output></div><input id="cooldown-slider" type="range" min="450" max="4000" step="50" /></div>
+        <p class="permission-note" id="gesture-status">Camera gesture detection is off.</p>
       </section>
 
       <section class="instructions">
         <div class="instructions-title"><span>✧</span><h3>Quick start</h3></div>
-        <ol><li>Open Google Meet and turn your camera on.</li><li>Move away and capture a clean background.</li><li>Toggle real-time removal for moving poses.</li><li>Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> to vanish.</li></ol>
-        <p class="privacy-note"><span>◉</span> Camera frames, masks, and optional snap audio are processed locally. Nothing is uploaded or recorded.</p>
+        <ol><li>Open a supported HTTPS camera website.</li><li>Enable Veyl for the current origin and reload the page.</li><li>Move away and capture a clean background.</li><li>Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> or use a camera gesture.</li></ol>
+        <p class="privacy-note"><span>◉</span> Camera frames, masks, hand landmarks, and background plates stay on this device. Veyl does not request microphone access for gestures.</p>
       </section>
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
     </main>

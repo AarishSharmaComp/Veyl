@@ -1,282 +1,179 @@
-import { CameraPipeline, PipelineEvent } from '../camera/camera-pipeline';
+import { CameraPipeline, type PipelineEvent } from '../camera/camera-pipeline';
+import { installCameraIntegration, type CameraIntegration } from '../integration/camera-integration';
 import { GestureController } from '../gestures/gesture-controller';
-import { SnapDetector } from '../gestures/snap-detector';
 import { sanitizeSettings } from '../shared/settings';
-import { DEFAULT_SETTINGS, DEFAULT_STATUS, PageInitPayload, PipelineStatus, SnapSettings } from '../shared/types';
-import { CONTENT_SOURCE, PAGE_SOURCE, isContentMessage } from '../shared/messages';
+import { describeSiteUrl } from '../shared/sites';
+import { isBackgroundPlate } from '../shared/background-plate';
+import { DEFAULT_SETTINGS, DEFAULT_STATUS, type PageInitPayload, type PipelineStatus } from '../shared/types';
+import { PAGE_SOURCE, isContentMessage, type BridgeMessage } from '../shared/messages';
 
-declare global {
-  interface Window {
-    __veylPageBridgeInstalled?: boolean;
-  }
-}
+declare global { interface Window { __veylPageBridgeInstalled?: boolean } }
 
-if (!window.__veylPageBridgeInstalled) {
+if (!window.__veylPageBridgeInstalled && describeSiteUrl(location)) {
   window.__veylPageBridgeInstalled = true;
   installPageBridge();
 }
 
+/** Minimal synchronous prehook captures native APIs before the page caches them.
+ * No camera, microphone or ML task is started until the worker-authorized isolated
+ * content script enables this exact origin. Pending native video requests wait
+ * at most 1500 ms for that decision and otherwise return the original stream. */
 function installPageBridge(): void {
-  const mediaDevices = navigator.mediaDevices;
-  if (!mediaDevices?.getUserMedia) {
-    post('ERROR', 'This page does not expose a camera API.');
-    return;
+  const site = describeSiteUrl(location)!;
+  let authorized = false;
+  let permissionGranted = false;
+  let sessionId = '';
+  let configured = false;
+  let leaseExpiresAt = 0;
+  let policyMessage = 'Waiting for Veyl site authorization…';
+  let policyError: string | null = null;
+  let revision = 0;
+  let detachKeyboard: (() => void) | null = null;
+  let integration: CameraIntegration | null = null;
+  let resolveInitial: () => void = () => undefined;
+  const initialPolicy = new Promise<void>((resolve) => { resolveInitial = resolve; });
+  const pipeline = new CameraPipeline(DEFAULT_SETTINGS, handlePipelineEvent);
+
+  function prehook(): CameraIntegration {
+    return installCameraIntegration(pipeline, {
+      active: () => authorized,
+      authorize: async () => { await initialPolicy; return authorized; },
+      onError: (error) => { policyError = toErrorMessage(error); emitStatus(); }
+    });
   }
-
-  let settings: SnapSettings = { ...DEFAULT_SETTINGS };
-  let snapActive = false;
-  let currentStatus: PipelineStatus = { ...DEFAULT_STATUS };
-  const snapDetector = new SnapDetector();
-  const pipeline = new CameraPipeline(settings, (event) => handlePipelineEvent(event));
-  const gestureController = new GestureController(() => pipeline.toggleEffect());
-  const detachKeyboard = gestureController.attach();
-  const originalGetUserMediaValue = mediaDevices.getUserMedia;
-  const originalGetUserMedia = mediaDevices.getUserMedia.bind(mediaDevices);
-  const restoreWebRtcHooks = installWebRtcRoutingHooks(pipeline);
-
-  const wrappedGetUserMedia = async (constraints?: MediaStreamConstraints): Promise<MediaStream> => {
-    const stream = await originalGetUserMedia(constraints);
-    if (!constraints?.video) return stream;
-    if (stream.getVideoTracks().length === 0) return stream;
-    try {
-      return await pipeline.attach(stream, constraints.video === true ? undefined : constraints.video);
-    } catch (error) {
-      pipeline.markOriginalFallback();
-      post('ERROR', `Snap could not route this camera stream: ${toErrorMessage(error)}`);
-      return stream;
-    }
-  };
-
-  let mediaHookInstalled = false;
-  try {
-    mediaDevices.getUserMedia = wrappedGetUserMedia;
-    mediaHookInstalled = true;
-  } catch {
-    try {
-      Object.defineProperty(mediaDevices, 'getUserMedia', { configurable: true, value: wrappedGetUserMedia });
-      mediaHookInstalled = true;
-    } catch (error) {
-      restoreWebRtcHooks();
-      detachKeyboard();
-      post('ERROR', `Veyl could not install the Meet camera hook: ${toErrorMessage(error)}`);
-      return;
-    }
-  }
+  // Keep the selected site's early native acquisition safe, including Meet.
+  integration = prehook();
 
   window.addEventListener('message', (event: MessageEvent) => {
-    if (event.source !== window || !isContentMessage(event.data)) return;
-    void handleContentMessage(event.data.type, event.data.payload).catch((error) => {
-      post('ERROR', toErrorMessage(error));
+    if (event.source !== window || event.origin !== location.origin || !isContentMessage(event.data)) return;
+    const message = event.data;
+    if (message.type === 'PING') { post('READY'); return; }
+    if (message.type === 'CONFIG') {
+      void configure(message).catch((error) => {
+        policyError = toErrorMessage(error);
+        authorized = false;
+        void deactivate('Veyl configuration failed. Reload this website.');
+      });
+      return;
+    }
+    if (!sessionId || message.sessionId !== sessionId) return;
+    if (message.type === 'HEARTBEAT') { leaseExpiresAt = Date.now() + 25_000; return; }
+    void handleCommand(message).then((result) => {
+      if (message.requestId) post('COMMAND_RESULT', result, message.requestId);
+    }, (error) => {
+      const detail = toErrorMessage(error);
+      post('ERROR', detail);
+      if (message.requestId) post('COMMAND_RESULT', { ok: false, error: detail }, message.requestId);
     });
   });
 
-  window.addEventListener('pagehide', () => {
-    detachKeyboard();
-    void snapDetector.stop();
-    pipeline.dispose();
-    restoreWebRtcHooks();
-    if (mediaHookInstalled) {
-      try {
-        mediaDevices.getUserMedia = originalGetUserMediaValue;
-      } catch {
-        // The document is going away; there is no remaining page API to repair.
-      }
-    }
-    window.__veylPageBridgeInstalled = false;
-  }, { once: true });
-
-  window.addEventListener('pageshow', () => {
-    if (!window.__veylPageBridgeInstalled) {
-      window.__veylPageBridgeInstalled = true;
-      installPageBridge();
-    }
-  }, { once: true });
-
-  post('READY');
-
-  async function handleContentMessage(type: string, payload: unknown): Promise<void> {
-    switch (type) {
-      case 'INIT': {
-        const init = payload as PageInitPayload;
-        settings = sanitizeSettings(init.settings);
-        await pipeline.setSettings(settings);
-        await pipeline.setAssetBaseUrl(init.assetBaseUrl);
-        await pipeline.setBackground(init.background);
-        await updateSnapDetector();
-        emitStatus();
-        break;
-      }
-      case 'SET_SETTINGS':
-        const previousSnapSensitivity = settings.snapSensitivity;
-        settings = sanitizeSettings({ ...settings, ...(payload as Partial<SnapSettings>) });
-        await pipeline.setSettings(settings);
-        if (snapDetector.active && settings.snapSensitivity !== previousSnapSensitivity) {
-          snapDetector.setSensitivity(settings.snapSensitivity);
-        }
-        await updateSnapDetector();
-        emitStatus();
-        break;
-      case 'TOGGLE_EFFECT':
-        pipeline.toggleEffect();
-        break;
-      case 'CAPTURE_BACKGROUND':
-        try {
-          await pipeline.captureBackground();
-        } catch (error) {
-          post('ERROR', toErrorMessage(error));
-        }
-        break;
-      case 'DELETE_BACKGROUND':
-        await pipeline.deleteBackground();
-        break;
-      case 'PING':
-        post('READY');
-        emitStatus();
-        break;
-      default:
-        break;
-    }
-  }
-
-  async function updateSnapDetector(): Promise<void> {
-    if (!settings.snapDetection) {
-      await snapDetector.stop();
-      snapActive = false;
+  async function configure(message: BridgeMessage): Promise<void> {
+    const init = message.payload as PageInitPayload;
+    if (!validConfiguration(init, message.sessionId, site.siteKey)) throw new Error('Veyl rejected an invalid site configuration.');
+    const epoch = ++revision;
+    sessionId = init.sessionId;
+    configured = true;
+    permissionGranted = init.hostPermissionGranted;
+    leaseExpiresAt = Date.now() + 25_000;
+    authorized = init.siteEnabled && permissionGranted;
+    resolveInitial();
+    if (!authorized) {
+      await deactivate(init.siteEnabled ? 'Site permission is missing. Re-enable Veyl from its popup.' : 'Veyl is disabled on this website.');
       return;
     }
-    if (snapDetector.active) return;
-    try {
-      await snapDetector.start(settings.snapSensitivity, () => pipeline.toggleEffect());
-      snapActive = true;
-    } catch (error) {
-      snapActive = false;
-      post('ERROR', `Snap detection needs microphone permission: ${toErrorMessage(error)}`);
+    policyError = null;
+    policyMessage = '';
+    if (!integration || integration.currentState.disposed) integration = prehook();
+    await integration.setActive(true);
+    if (epoch !== revision || !authorized) return;
+    pipeline.setSiteContext(site, true, true, true);
+    if (!detachKeyboard) detachKeyboard = new GestureController(() => pipeline.toggleEffect()).attach();
+    // Background/settings are installed independently; a slow model load must
+    // not delay disabling or a safe captured-plate mode.
+    await pipeline.setBackground(init.background);
+    if (epoch !== revision || !authorized) return;
+    await Promise.all([pipeline.setSettings(sanitizeSettings(init.settings)), pipeline.setAssetBaseUrl(init.assetBaseUrl)]);
+    if (epoch === revision) emitStatus();
+  }
+
+  async function deactivate(reason: string): Promise<void> {
+    authorized = false;
+    revision += 1;
+    policyMessage = reason;
+    detachKeyboard?.();
+    detachKeyboard = null;
+    const current = integration;
+    if (current) await current.dispose();
+    emitStatus();
+  }
+
+  async function handleCommand(message: BridgeMessage): Promise<{ ok: boolean }> {
+    if (message.type === 'DEACTIVATE') {
+      await deactivate('Veyl is disabled on this website.');
+      return { ok: true };
     }
+    if (!authorized) throw new Error('Enable Veyl on this website first.');
+    switch (message.type) {
+      case 'SET_SETTINGS': await pipeline.setSettings(sanitizeSettings(message.payload as typeof DEFAULT_SETTINGS)); break;
+      case 'TOGGLE_EFFECT': {
+        const status = pipeline.currentStatus;
+        if (!status.cameraAvailable || !status.pipelineInitialized) throw new Error('Turn on the website camera before using Veyl.');
+        pipeline.toggleEffect();
+        break;
+      }
+      case 'CAPTURE_BACKGROUND': await pipeline.captureBackground(); break;
+      case 'DELETE_BACKGROUND': await pipeline.deleteBackground(); break;
+      default: throw new Error('Unknown Veyl command.');
+    }
+    emitStatus();
+    return { ok: true };
   }
 
   function handlePipelineEvent(event: PipelineEvent): void {
-    if (event.type === 'STATUS') {
-      currentStatus = { ...event.status, snapDetectionActive: snapActive };
-      emitStatus();
-    } else if (event.type === 'BACKGROUND_CAPTURED') {
-      post('BACKGROUND_CAPTURED', event.background);
-      emitStatus();
-    } else if (event.type === 'BACKGROUND_DELETED') {
-      post('BACKGROUND_DELETED');
-      emitStatus();
-    } else if (event.type === 'ERROR') {
-      post('ERROR', event.error);
-      emitStatus();
-    }
+    if (event.type === 'BACKGROUND_CAPTURED') post(event.type, event.background);
+    else if (event.type === 'BACKGROUND_DELETED' || event.type === 'GESTURE_DETECTED') post(event.type);
+    else if (event.type === 'ERROR') post('ERROR', event.error);
+    emitStatus();
   }
 
   function emitStatus(): void {
-    currentStatus = { ...pipeline.currentStatus, snapDetectionActive: snapActive };
-    post('STATUS', currentStatus);
-  }
-}
-
-function post(type: 'READY' | 'STATUS' | 'BACKGROUND_CAPTURED' | 'BACKGROUND_DELETED' | 'ERROR', payload?: unknown): void {
-  const message = { source: PAGE_SOURCE, type, payload };
-  window.postMessage(message, '*');
-}
-
-function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function installWebRtcRoutingHooks(pipeline: CameraPipeline): () => void {
-  const restore: Array<() => void> = [];
-  const peerConnectionPrototype = window.RTCPeerConnection?.prototype;
-
-  if (peerConnectionPrototype) {
-    const originalAddTrack = peerConnectionPrototype.addTrack;
-    const wrappedAddTrack = function (this: RTCPeerConnection, track: MediaStreamTrack, ...streams: MediaStream[]): RTCRtpSender {
-      const routedTrack = pipeline.routeVideoTrack(track);
-      const sender = originalAddTrack.call(this, routedTrack, ...streams);
-      if (routedTrack.kind === 'video') pipeline.markOutboundTrack(routedTrack);
-      return sender;
-    } as typeof originalAddTrack;
-
-    try {
-      peerConnectionPrototype.addTrack = wrappedAddTrack;
-      restore.push(() => {
-        peerConnectionPrototype.addTrack = originalAddTrack;
-      });
-    } catch {
-      // Some browser builds expose a non-writable WebRTC prototype method.
+    const status: PipelineStatus = { ...DEFAULT_STATUS, ...pipeline.currentStatus,
+      siteKey: site.siteKey, siteLabel: site.label, siteDetected: true,
+      siteEnabled: authorized, hostPermissionGranted: permissionGranted, bridgeReady: configured };
+    if (!authorized) {
+      status.effectActive = false;
+      status.gestureDetectionActive = false;
+      status.handTracked = false;
+      if (!status.reloadRequired) status.message = policyMessage;
     }
-
-    const originalAddTransceiver = peerConnectionPrototype.addTransceiver;
-    const wrappedAddTransceiver = function (
-      this: RTCPeerConnection,
-      trackOrKind: MediaStreamTrack | string,
-      init?: RTCRtpTransceiverInit
-    ): RTCRtpTransceiver {
-      const routedTrack = typeof trackOrKind === 'string' ? trackOrKind : pipeline.routeVideoTrack(trackOrKind);
-      const transceiver = originalAddTransceiver.call(this, routedTrack as never, init);
-      if (typeof routedTrack !== 'string' && routedTrack.kind === 'video') pipeline.markOutboundTrack(routedTrack);
-      return transceiver;
-    } as typeof originalAddTransceiver;
-
-    try {
-      peerConnectionPrototype.addTransceiver = wrappedAddTransceiver;
-      restore.push(() => {
-        peerConnectionPrototype.addTransceiver = originalAddTransceiver;
-      });
-    } catch {
-      // Keep the getUserMedia replacement as the primary integration path.
-    }
-
-    const originalRemoveTrack = peerConnectionPrototype.removeTrack;
-    const wrappedRemoveTrack = function (this: RTCPeerConnection, sender: RTCRtpSender): void {
-      const wasVideo = sender.track?.kind === 'video';
-      originalRemoveTrack.call(this, sender);
-      if (wasVideo) pipeline.markOutboundTrack(null);
-    } as typeof originalRemoveTrack;
-
-    try {
-      peerConnectionPrototype.removeTrack = wrappedRemoveTrack;
-      restore.push(() => {
-        peerConnectionPrototype.removeTrack = originalRemoveTrack;
-      });
-    } catch {
-      // Removing a sender is not required for the primary path.
-    }
+    if (policyError) status.error = policyError;
+    post('STATUS', status);
   }
 
-  const pageWindow = window as typeof window & { RTCRtpSender?: typeof RTCRtpSender };
-  const senderPrototype = pageWindow.RTCRtpSender?.prototype;
-  if (senderPrototype) {
-    const originalReplaceTrack = senderPrototype.replaceTrack;
-    const wrappedReplaceTrack = function (this: RTCRtpSender, track: MediaStreamTrack | null): Promise<void> {
-      const routedTrack = track ? pipeline.routeVideoTrack(track) : null;
-      const result = originalReplaceTrack.call(this, routedTrack);
-      if (routedTrack?.kind === 'video' || this.track?.kind === 'video') {
-        void result.then(() => pipeline.markOutboundTrack(routedTrack)).catch(() => undefined);
-      }
-      return result;
-    } as typeof originalReplaceTrack;
-
-    try {
-      senderPrototype.replaceTrack = wrappedReplaceTrack;
-      restore.push(() => {
-        senderPrototype.replaceTrack = originalReplaceTrack;
-      });
-    } catch {
-      // The returned processed stream remains the fallback integration path.
-    }
+  function post(type: string, payload?: unknown, requestId?: string): void {
+    window.postMessage({ source: PAGE_SOURCE, type, payload, sessionId, requestId }, location.origin);
   }
 
-  return () => {
-    for (const undo of restore.reverse()) {
-      try {
-        undo();
-      } catch {
-        // The document is already being torn down.
-      }
-    }
-  };
+  // If the extension is disabled/uninstalled, existing MAIN-world scripts are
+  // not removed by Chrome. A bounded lease restores observed native senders and
+  // releases models instead of leaving a detached processing loop indefinitely.
+  window.setInterval(() => {
+    if (authorized && Date.now() > leaseExpiresAt) void deactivate('Veyl was disconnected. Reload the page after enabling the extension.');
+  }, 5000);
+  window.addEventListener('pagehide', () => { void deactivate('Veyl paused for page navigation.'); });
+  window.addEventListener('pageshow', (event) => { if (event.persisted) post('READY'); });
+  post('READY');
 }
 
-void CONTENT_SOURCE;
+function validConfiguration(value: unknown, sessionId: string | undefined, siteKey: string): value is PageInitPayload {
+  if (!value || typeof value !== 'object') return false;
+  const init = value as Partial<PageInitPayload>;
+  return init.siteKey === siteKey && typeof sessionId === 'string' && sessionId.length >= 8
+    && init.sessionId === sessionId && typeof init.siteLabel === 'string'
+    && typeof init.siteEnabled === 'boolean' && typeof init.hostPermissionGranted === 'boolean'
+    && !!init.settings && typeof init.settings === 'object'
+    && typeof init.assetBaseUrl === 'string' && /^chrome-extension:\/\/[a-p]{32}\/$/.test(init.assetBaseUrl)
+    && (init.background === null || isBackgroundPlate(init.background));
+}
+
+function toErrorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }

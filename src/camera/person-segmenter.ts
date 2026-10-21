@@ -11,6 +11,7 @@ export class PersonSegmenter {
   private initializing: Promise<void> | null = null;
   private lastTimestamp = -1;
   private lifecycle = 0;
+  private frame: SegmentationFrame | null = null;
 
   async initialize(wasmBaseUrl: string, modelUrl: string): Promise<void> {
     if (this.segmenter) return;
@@ -25,6 +26,7 @@ export class PersonSegmenter {
 
   private async create(wasmBaseUrl: string, modelUrl: string, lifecycle: number): Promise<void> {
     const fileset = await FilesetResolver.forVisionTasks(wasmBaseUrl);
+    if (this.lifecycle !== lifecycle) return;
     const options = {
       baseOptions: { modelAssetPath: modelUrl, delegate: 'GPU' as const },
       runningMode: 'VIDEO' as const,
@@ -40,6 +42,7 @@ export class PersonSegmenter {
       }
       this.segmenter = segmenter;
     } catch (gpuError) {
+      if (this.lifecycle !== lifecycle) return;
       // CPU is slower but keeps older laptops and GPU-disabled Chrome profiles usable.
       const segmenter = await ImageSegmenter.createFromOptions(fileset, {
         ...options,
@@ -50,7 +53,7 @@ export class PersonSegmenter {
         return;
       }
       this.segmenter = segmenter;
-      console.warn('[Snap] GPU segmentation unavailable; using CPU fallback.', gpuError);
+      console.warn('[Veyl] GPU segmentation unavailable; using CPU fallback.', gpuError);
     }
   }
 
@@ -68,11 +71,13 @@ export class PersonSegmenter {
 
     try {
       const data = mask.getAsFloat32Array();
-      return {
-        data: new Float32Array(data),
-        width: mask.width,
-        height: mask.height
-      };
+      if (!Number.isInteger(mask.width) || !Number.isInteger(mask.height) || mask.width <= 0 || mask.height <= 0 ||
+        data.length !== mask.width * mask.height) return null;
+      if (!this.frame || this.frame.width !== mask.width || this.frame.height !== mask.height) {
+        this.frame = { data: new Float32Array(data.length), width: mask.width, height: mask.height };
+      }
+      this.frame.data.set(data);
+      return this.frame;
     } finally {
       this.closeMasks(result.confidenceMasks);
       result.categoryMask?.close();
@@ -87,6 +92,7 @@ export class PersonSegmenter {
     this.lifecycle += 1;
     this.segmenter?.close();
     this.segmenter = null;
+    this.frame = null;
     this.lastTimestamp = -1;
   }
 

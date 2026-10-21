@@ -1,166 +1,150 @@
-import { sanitizeSettings } from '../shared/settings';
-import { CONTENT_SOURCE, PAGE_SOURCE, isPageMessage } from '../shared/messages';
-import { BackgroundPlate, ContentMessage, DEFAULT_SETTINGS, DEFAULT_STATUS, ExtensionSnapshot, PipelineStatus, SnapSettings } from '../shared/types';
+import { describeSiteUrl } from '../shared/sites';
+import { isBackgroundPlate } from '../shared/background-plate';
+import { CONTENT_SOURCE, isPageMessage } from '../shared/messages';
+import { DEFAULT_SETTINGS, DEFAULT_STATUS, type ContentMessage, type ExtensionSnapshot, type FrameConfig, type PipelineStatus } from '../shared/types';
 
-const isMeetPage = location.hostname === 'meet.google.com';
+const site = describeSiteUrl(location);
+const sessionId = crypto.randomUUID();
+let config: FrameConfig | null = null;
 let pageReady = false;
-let latestStatus: PipelineStatus = { ...DEFAULT_STATUS, siteDetected: isMeetPage };
-let settings: SnapSettings = { ...DEFAULT_SETTINGS };
-let background: BackgroundPlate | null = null;
-let stateLoaded = false;
-let bridgePingAttempts = 0;
+let latestStatus: PipelineStatus = { ...DEFAULT_STATUS, siteDetected: site !== null };
+let configRevision = 0;
+let backgroundSave: Promise<unknown> = Promise.resolve();
+const pending = new Map<string, { resolve: (value: { ok: boolean; error?: string }) => void; timer: number }>();
 
-if (isMeetPage) {
+if (site && window === window.top) {
   window.addEventListener('message', onPageMessage);
-  chrome.storage.onChanged.addListener(onStorageChanged);
-  chrome.runtime.onMessage.addListener(onRuntimeMessage);
-  void loadStoredState()
-    .catch((error) => {
-      latestStatus.error = `Veyl could not load its local settings: ${toErrorMessage(error)}`;
-      latestStatus.message = 'Using safe default settings.';
-      notifyStatus();
-    })
-    .finally(() => {
-      stateLoaded = true;
-      requestPageBridge();
-    });
+  window.addEventListener('pageshow', (event) => { if (event.persisted) void refreshConfiguration(); });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && (changes.globalEnabled || changes.siteProfiles)) void refreshConfiguration();
+  });
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (sender.id !== chrome.runtime.id || !message || typeof message.type !== 'string') return false;
+    if (message.type === 'POLICY_CHANGED') {
+      if (message.siteKey && message.siteKey !== site.siteKey) return false;
+      void refreshConfiguration().then(() => sendResponse({ ok: true }));
+      return true;
+    }
+    if (!['GET_STATUS', 'TOGGLE_EFFECT', 'CAPTURE_BACKGROUND', 'DELETE_BACKGROUND', 'SET_SETTINGS', 'DEACTIVATE'].includes(message.type)) return false;
+    void runtimeCommand(message).then(sendResponse, (error) => sendResponse({ ok: false, error: toErrorMessage(error) }));
+    return true;
+  });
+  // Registration occurs before navigation; retry the page-world handshake if
+  // MAIN/isolated scheduling delivers READY before this listener exists.
+  for (const delay of [0, 150, 600, 1600]) window.setTimeout(() => post('PING'), delay);
+  void refreshConfiguration();
+  // Also fails closed after extension invalidation or permission revocation.
+  window.setInterval(() => void refreshConfiguration(), 8000);
 }
 
-async function loadStoredState(): Promise<void> {
-  const stored = await chrome.storage.local.get(['settings', 'background']);
-  settings = sanitizeSettings(stored.settings as Partial<SnapSettings> | undefined);
-  background = isBackgroundPlate(stored.background) ? stored.background : null;
-}
-
-function requestPageBridge(): void {
-  if (pageReady) {
-    initializePageBridge();
-    return;
+async function refreshConfiguration(): Promise<void> {
+  const epoch = ++configRevision;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'GET_FRAME_CONFIG' });
+    if (epoch !== configRevision) return;
+    if (!response?.ok || !response.config || response.config.site?.siteKey !== site?.siteKey) {
+      throw new Error(response?.error ?? 'Veyl could not verify this website’s access.');
+    }
+    const previous = config;
+    config = response.config as FrameConfig;
+    if (!previous || JSON.stringify(previous) !== JSON.stringify(config) || !latestStatus.bridgeReady) sendConfiguration();
+    else if (config.enabled) post('HEARTBEAT');
+  } catch (error) {
+    if (epoch !== configRevision) return;
+    config = null;
+    latestStatus = { ...DEFAULT_STATUS, siteDetected: true, siteKey: site?.siteKey ?? null,
+      message: 'Veyl is disabled until site access can be verified.', error: toErrorMessage(error) };
+    post('DEACTIVATE');
   }
-
-  bridgePingAttempts += 1;
-  window.postMessage({ source: CONTENT_SOURCE, type: 'PING' }, '*');
-  if (bridgePingAttempts < 12) {
-    window.setTimeout(requestPageBridge, 150);
-    return;
-  }
-
-  latestStatus.error = 'Veyl could not initialize its Meet page bridge.';
-  latestStatus.message = 'Reload the Meet tab and try again.';
-  notifyStatus();
 }
 
-function initializePageBridge(): void {
-  if (!stateLoaded || !pageReady) return;
-  postToPage('INIT', { settings, background, assetBaseUrl: chrome.runtime.getURL('') });
+function sendConfiguration(): void {
+  if (!pageReady || !site || !config) return;
+  post('CONFIG', {
+    siteKey: site.siteKey, siteLabel: site.label, sessionId,
+    settings: config.profile?.settings ?? DEFAULT_SETTINGS,
+    background: config.profile?.background ?? null,
+    assetBaseUrl: chrome.runtime.getURL(''),
+    siteEnabled: config.enabled,
+    hostPermissionGranted: config.hostPermissionGranted
+  });
 }
 
 function onPageMessage(event: MessageEvent): void {
-  if (event.source !== window || !isPageMessage(event.data)) return;
-  const type = event.data.type;
-  if (type === 'READY') {
+  if (event.source !== window || event.origin !== location.origin || !isPageMessage(event.data)) return;
+  const message = event.data;
+  if (message.type === 'READY') {
     pageReady = true;
-    initializePageBridge();
-  } else if (type === 'STATUS') {
-    latestStatus = { ...(event.data.payload as PipelineStatus), siteDetected: true };
-    notifyStatus();
-  } else if (type === 'BACKGROUND_CAPTURED') {
-    const captured = event.data.payload as BackgroundPlate;
-    if (!isBackgroundPlate(captured)) return;
-    background = captured;
-    void chrome.storage.local.set({ background }).catch((error) => {
-      latestStatus.error = `The background was captured but could not be saved locally: ${toErrorMessage(error)}`;
-      latestStatus.message = 'Recapture or delete the background after checking extension storage.';
-      notifyStatus();
+    sendConfiguration();
+    return;
+  }
+  if (message.sessionId !== sessionId) return;
+  if (message.type === 'COMMAND_RESULT' && message.requestId) {
+    const waiting = pending.get(message.requestId);
+    if (waiting) {
+      window.clearTimeout(waiting.timer);
+      pending.delete(message.requestId);
+      waiting.resolve(message.payload as { ok: boolean; error?: string });
+    }
+  } else if (message.type === 'STATUS' && isStatus(message.payload)) {
+    latestStatus = { ...message.payload, siteKey: site?.siteKey ?? null, siteLabel: site?.label ?? '',
+      siteDetected: true, siteEnabled: config?.enabled === true, hostPermissionGranted: config?.hostPermissionGranted === true };
+  } else if (message.type === 'BACKGROUND_CAPTURED' && config?.enabled && isBackgroundPlate(message.payload)) {
+    backgroundSave = chrome.runtime.sendMessage({ type: 'FRAME_BACKGROUND_CAPTURED', background: message.payload }).then((response) => {
+      if (!response?.ok) throw new Error(response?.error ?? 'The background could not be saved locally.');
     });
-    latestStatus.backgroundAvailable = true;
-    latestStatus.backgroundMismatch = false;
-    notifyStatus();
-  } else if (type === 'BACKGROUND_DELETED') {
-    background = null;
-    void chrome.storage.local.remove('background').catch((error) => {
-      latestStatus.error = `The background preview was cleared but local deletion failed: ${toErrorMessage(error)}`;
-      notifyStatus();
+    void backgroundSave.catch(showStorageError);
+  } else if (message.type === 'BACKGROUND_DELETED' && config?.enabled) {
+    backgroundSave = chrome.runtime.sendMessage({ type: 'FRAME_BACKGROUND_DELETED' }).then((response) => {
+      if (!response?.ok) throw new Error(response?.error ?? 'The background could not be deleted locally.');
     });
-    latestStatus.backgroundAvailable = false;
-    notifyStatus();
-  } else if (type === 'ERROR') {
-    latestStatus.error = String(event.data.payload ?? 'Unknown Snap error');
-    latestStatus.message = latestStatus.error;
-    notifyStatus();
+    void backgroundSave.catch(showStorageError);
+  } else if (message.type === 'ERROR') {
+    latestStatus.error = String(message.payload ?? 'Veyl could not complete the camera operation.').slice(0, 1200);
   }
 }
 
-function onStorageChanged(changes: { [key: string]: chrome.storage.StorageChange }): void {
-  if (changes.settings?.newValue) {
-    settings = sanitizeSettings(changes.settings.newValue as Partial<SnapSettings>);
-    postToPage('SET_SETTINGS', settings);
-  }
-  if (Object.prototype.hasOwnProperty.call(changes, 'background')) {
-    background = isBackgroundPlate(changes.background.newValue) ? changes.background.newValue : null;
-    initializePageBridge();
-  }
-}
-
-function onRuntimeMessage(message: ContentMessage | { type: 'TOGGLE_EFFECT' }, _sender: chrome.runtime.MessageSender, sendResponse: (response: unknown) => void): true {
-  void handleRuntimeMessage(message).then(sendResponse).catch((error) => sendResponse({ ok: false, error: String(error) }));
-  return true;
-}
-
-async function handleRuntimeMessage(message: ContentMessage | { type: 'TOGGLE_EFFECT' }): Promise<unknown> {
+async function runtimeCommand(message: ContentMessage & { fromShortcut?: boolean }): Promise<unknown> {
   if (message.type === 'GET_STATUS') {
-    const snapshot: ExtensionSnapshot = { settings, background, status: latestStatus };
+    const snapshot: ExtensionSnapshot = { globalEnabled: config?.globalEnabled ?? false, site,
+      settings: config?.profile?.settings ?? DEFAULT_SETTINGS, background: config?.profile?.background ?? null, status: latestStatus };
     return { ok: true, snapshot };
   }
-  if (message.type === 'TOGGLE_EFFECT') {
-    postToPage('TOGGLE_EFFECT');
-    return { ok: pageReady };
-  }
-  if (message.type === 'CAPTURE_BACKGROUND') {
-    postToPage('CAPTURE_BACKGROUND');
-    return { ok: pageReady };
-  }
-  if (message.type === 'DELETE_BACKGROUND') {
-    background = null;
-    await chrome.storage.local.remove('background');
-    postToPage('DELETE_BACKGROUND');
-    return { ok: pageReady };
-  }
-  if (message.type === 'SET_SETTINGS' && message.settings) {
-    settings = sanitizeSettings(message.settings);
-    await chrome.storage.local.set({ settings });
-    postToPage('SET_SETTINGS', settings);
-    return { ok: pageReady };
-  }
-  return { ok: false, error: 'Unknown message.' };
+  if (message.type === 'DEACTIVATE') return pageCommand('DEACTIVATE');
+  // Browser commands may fire while typing; the page-key listener does the same check.
+  if (message.fromShortcut && isEditing()) return { ok: false, error: 'Keyboard toggle ignored while typing.' };
+  await refreshConfiguration();
+  if (!config?.enabled) return { ok: false, error: 'Enable Veyl on this website first.' };
+  const response = await pageCommand(message.type, message.settings);
+  if (response.ok && (message.type === 'CAPTURE_BACKGROUND' || message.type === 'DELETE_BACKGROUND')) await backgroundSave;
+  return response;
 }
 
-function postToPage(type: string, payload?: unknown): void {
-  if (!pageReady) return;
-  window.postMessage({ source: CONTENT_SOURCE, type, payload }, '*');
+function pageCommand(type: string, payload?: unknown): Promise<{ ok: boolean; error?: string }> {
+  if (!pageReady) return Promise.resolve({ ok: false, error: 'Reload this website to connect Veyl before its camera starts.' });
+  const requestId = crypto.randomUUID();
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => { pending.delete(requestId); resolve({ ok: false, error: 'The camera page did not respond. Reload it and try again.' }); }, 5000);
+    pending.set(requestId, { resolve, timer });
+    post(type, payload, requestId);
+  });
 }
 
-function notifyStatus(): void {
-  // Popup instances ask for the latest state; this message is also useful to a future
-  // side panel without exposing any camera data to the extension worker.
-  void chrome.runtime.sendMessage({ type: 'STATUS_UPDATED', status: latestStatus }).catch(() => undefined);
+function post(type: string, payload?: unknown, requestId?: string): void {
+  window.postMessage({ source: CONTENT_SOURCE, type, sessionId, payload, requestId }, location.origin);
 }
 
-function isBackgroundPlate(value: unknown): value is BackgroundPlate {
+function isStatus(value: unknown): value is PipelineStatus {
   if (!value || typeof value !== 'object') return false;
-  const candidate = value as Partial<BackgroundPlate>;
-  return Boolean(
-    typeof candidate.dataUrl === 'string' &&
-      candidate.dataUrl.startsWith('data:image/') &&
-      typeof candidate.width === 'number' &&
-      Number.isFinite(candidate.width) &&
-      candidate.width > 0 &&
-      typeof candidate.height === 'number' &&
-      Number.isFinite(candidate.height) &&
-      candidate.height > 0
-  );
+  const status = value as PipelineStatus;
+  return ['waiting', 'original', 'processed', 'outbound'].includes(status.cameraRoute)
+    && typeof status.message === 'string' && typeof status.cameraAvailable === 'boolean'
+    && typeof status.pipelineInitialized === 'boolean' && typeof status.effectActive === 'boolean';
 }
 
-function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function isEditing(): boolean {
+  const target = document.activeElement as HTMLElement | null;
+  return Boolean(target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? ''));
 }
+function showStorageError(error: unknown): void { latestStatus.error = toErrorMessage(error); }
+function toErrorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }

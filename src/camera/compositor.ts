@@ -88,6 +88,7 @@ export class Compositor {
 
   private updateMask(mask: SegmentationFrame, threshold: number, strength: number): boolean {
     if (mask.width <= 0 || mask.height <= 0 || mask.data.length !== mask.width * mask.height) return false;
+    const firstMask = mask.width !== this.maskWidth || mask.height !== this.maskHeight || !this.smoothedMask;
     if (mask.width !== this.maskWidth || mask.height !== this.maskHeight || !this.smoothedMask) {
       this.maskWidth = mask.width;
       this.maskHeight = mask.height;
@@ -102,9 +103,14 @@ export class Compositor {
     const pixels = this.maskPixels;
     if (!pixels || !this.maskImageData) return false;
     for (let index = 0; index < mask.data.length; index += 1) {
+      if (!Number.isFinite(mask.data[index])) return false;
       const value = Math.max(0, Math.min(1, mask.data[index]));
-      smoothed[index] = smoothed[index] * 0.58 + value * 0.42;
-      const normalized = Math.max(0, Math.min(1, (smoothed[index] - threshold) / (1 - threshold)));
+      smoothed[index] = firstMask ? value : smoothed[index] * 0.42 + value * 0.58;
+      // Saturate confident foreground instead of retaining a semi-transparent
+      // ghost at every confidence below 1. Feather only a narrow boundary band.
+      const low = Math.max(0, threshold - 0.18);
+      const high = Math.min(1, threshold + 0.18);
+      const normalized = Math.max(0, Math.min(1, (smoothed[index] - low) / Math.max(0.01, high - low)));
       const feathered = normalized * normalized * (3 - 2 * normalized) * strength;
       const offset = index * 4;
       pixels[offset] = 255;
