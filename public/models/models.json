@@ -13,6 +13,13 @@
       "sha256": "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1",
       "source": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
       "purpose": "Hand detection and 21 hand landmarks; the temporal snap heuristic is implemented separately in Veyl."
+    },
+    {
+      "file": "face_landmarker.task",
+      "bytes": 3758596,
+      "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+      "source": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+      "purpose": "Single-face normalized landmarks for the local 2D visor overlay; blendshapes and transformation matrices are disabled."
     }
   ]
 }

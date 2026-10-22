@@ -11,6 +11,7 @@ export function sanitizeSettings(value: Partial<VeylSettings> & LegacyGestureSet
     // Audio-trigger consent from an earlier version is NOT an opt-in to this
     // different visual feature. Only an explicit new camera-gesture flag enables it.
     gestureDetection: candidate.gestureDetection === true,
+    characterStudio: candidate.characterStudio === true,
     gestureSensitivity: clampNumber(candidate.gestureSensitivity ?? legacySensitivity, DEFAULT_SETTINGS.gestureSensitivity, 0, 1),
     gestureCooldownMs: clampNumber(candidate.gestureCooldownMs, DEFAULT_SETTINGS.gestureCooldownMs, 450, 4000),
     animations: candidate.animations !== false,

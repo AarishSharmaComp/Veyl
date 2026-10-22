@@ -25,6 +25,7 @@ await buildAndPublish(dist, async (staging) => {
     build({ ...common, entryPoints: [resolve(root, 'src/content/content.ts')], outfile: resolve(staging, 'content.js') }),
     build({ ...common, entryPoints: [resolve(root, 'src/page/page-bridge.ts')], outfile: resolve(staging, 'page-bridge.js') }),
     build({ ...common, entryPoints: [resolve(root, 'src/gestures/hand-gesture-worker.ts')], outfile: resolve(staging, 'hand-gesture-worker.js') }),
+    build({ ...common, entryPoints: [resolve(root, 'src/camera/face-landmarker-worker.ts')], outfile: resolve(staging, 'face-landmarker-worker.js') }),
     build({ ...common, entryPoints: [resolve(root, 'src/background.ts')], outfile: resolve(staging, 'background.js') }),
     build({ ...common, entryPoints: [resolve(root, 'src/popup/popup.ts')], outfile: resolve(staging, 'popup.js'), loader: { '.css': 'css' } })
   ]);
@@ -65,6 +66,7 @@ await buildAndPublish(dist, async (staging) => {
     'content.js',
     'page-bridge.js',
     'hand-gesture-worker.js',
+    'face-landmarker-worker.js',
     'background.js',
     'popup.html',
     'popup.js',
@@ -74,7 +76,8 @@ await buildAndPublish(dist, async (staging) => {
     'icons/veyl-48.png',
     'icons/veyl-128.png',
     'models/selfie_segmenter.tflite',
-    'models/hand_landmarker.task'
+    'models/hand_landmarker.task',
+    'models/face_landmarker.task'
   ];
   for (const relativePath of requiredFiles) {
     if (!existsSync(resolve(staging, relativePath))) throw new Error(`Build output is missing ${relativePath}`);

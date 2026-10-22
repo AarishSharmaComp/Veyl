@@ -58,6 +58,7 @@ const elements = {
   intensitySlider: get<HTMLInputElement>('intensity-slider'),
   intensityValue: get<HTMLOutputElement>('intensity-value'),
   performanceSelect: get<HTMLSelectElement>('performance-select'),
+  characterToggle: get<HTMLInputElement>('character-toggle'),
   gestureToggle: get<HTMLInputElement>('gesture-toggle'),
   sensitivitySlider: get<HTMLInputElement>('sensitivity-slider'),
   sensitivityValue: get<HTMLOutputElement>('sensitivity-value'),
@@ -118,6 +119,7 @@ function bindControls(): void {
     void updateSetting({ animationIntensity });
   });
   elements.performanceSelect.addEventListener('change', () => void updateSetting({ performanceMode: elements.performanceSelect.value as VeylSettings['performanceMode'] }));
+  elements.characterToggle.addEventListener('change', () => void updateSetting({ characterStudio: elements.characterToggle.checked }));
   elements.gestureToggle.addEventListener('change', () => void updateSetting({ gestureDetection: elements.gestureToggle.checked }));
   elements.sensitivitySlider.addEventListener('input', () => {
     const gestureSensitivity = Number(elements.sensitivitySlider.value) / 100;
@@ -342,6 +344,7 @@ function render(): void {
   elements.intensitySlider.value = String(Math.round(settings.animationIntensity * 100));
   elements.intensityValue.value = `${Math.round(settings.animationIntensity * 100)}%`;
   elements.performanceSelect.value = settings.performanceMode;
+  elements.characterToggle.checked = settings.characterStudio;
   elements.gestureToggle.checked = settings.gestureDetection;
   elements.sensitivitySlider.value = String(Math.round(settings.gestureSensitivity * 100));
   elements.sensitivityValue.value = `${Math.round(settings.gestureSensitivity * 100)}%`;

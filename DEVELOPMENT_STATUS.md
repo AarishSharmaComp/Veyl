@@ -1,6 +1,6 @@
 # Veyl development status
 
-Updated: October 21, 2026
+Updated: October 22, 2026
 
 ## Baseline recovered
 
@@ -132,6 +132,24 @@ Updated: October 21, 2026
   status, and manual fallback controls.
 - No microphone permission is requested for gesture detection.
 
+### Character Studio face overlay
+
+- Added a per-site `characterStudio` setting that is strictly opt-in and
+  defaults to `false`; disabled sites do not initialize face tracking.
+- Added the official local MediaPipe Face Landmarker model with provenance,
+  checksum, and package validation alongside the existing person and hand
+  models.
+- Added a worker-first single-face tracker using local `ImageBitmap` frames,
+  the existing Trusted Types/resource boundary, GPU-first initialization with
+  CPU fallback, one in-flight request, timestamp/generation checks, and clean
+  worker/model teardown.
+- Added one Canvas 2D visor overlay to the existing processed output canvas.
+  Position, scale, and roll are smoothed; temporary face loss holds briefly,
+  fades, and then clears. The overlay is reset and suppressed during
+  disappearance/reappearance transitions.
+- No second camera, audio path, output track, render loop, 3D model, multiple
+  face path, or remote frame upload was added.
+
 ### Cinematic disappearance effect
 
 - Added a separate `DisintegrationEffect` renderer behind the existing
@@ -202,11 +220,11 @@ Updated: October 21, 2026
 
 ## Automated verification
 
-Last run on October 21, 2026, macOS ARM64, Node 26.9.0 / npm 11.19.1.
+Last run on October 22, 2026, macOS ARM64, Node 26.9.0 / npm 11.19.1.
 Typecheck and tests were each run with a five-minute timeout:
 
 - `npm run typecheck` — passed.
-- `npm test` — **219 passed, 0 failed, 0 skipped**.
+- `npm test` — **238 passed, 0 failed, 0 skipped**.
 - `npm run build` — passed.
 - `npm run check` is the convenience sequence: typecheck, build, tests. The
   individual commands above were executed against the current code/package.
@@ -218,17 +236,19 @@ Typecheck and tests were each run with a five-minute timeout:
 
 The existing browser smoke accepts `VEYL_TRUSTED_TYPES=1`, adds
 `require-trusted-types-for 'script'` to its local fixture, and exercises the
-real bundled MediaPipe loader plus both real local models. This is the focused
+real bundled MediaPipe loader plus the local model paths. The fixture enables
+Character Studio, but the smoke status contract does not expose a dedicated
+face-model-ready field. This is the focused
 regression command:
 
 ```sh
 BROWSER_BIN="/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" VEYL_TRUSTED_TYPES=1 npm run test:browser
 ```
 
-On October 21, 2026 this passed with Brave 155.1.97.59 / Chromium
-`Chrome/155.0.8059.85`, both real local models ready, hand inference offloaded to
-the worker, processed loopback output, sender restoration, and zero microphone
-requests. With normal removal compositing disabled, the synthetic fixture
+On October 22, 2026 this passed with Brave 155.1.97.59 / Chromium
+`Chrome/155.0.8059.85`, segmentation and hand model statuses ready, hand
+inference offloaded to the worker, processed loopback output, sender restoration,
+and zero microphone requests. With normal removal compositing disabled, the synthetic fixture
 correctly kept segmentation available. Its intentional background mismatch
 selected the graceful fallback instead of pretending the red test plate matched
 the fake camera scene. Fresh-profile first-inference timing was approximately
@@ -249,14 +269,16 @@ Brave 155.1.97.59 reported Chromium `Chrome/155.0.8059.85`. Results:
 
 - Unpacked extension identity: **Veyl — Live Camera Effects**.
 - Browser accepted explicit-port script registration.
-- Both real bundled MediaPipe models ready.
+- Segmentation and hand statuses reported ready; the fixture also enabled the
+  local Character Studio path. Face overlay readiness/visual correctness is not
+  directly asserted by the current status contract.
 - Hand inference was offloaded to the worker with no offload error. The final
-  normal run reported approximately 5.5 s and the strict run approximately
-  5.6 s; fresh-profile warm-up varies, so these are not steady-state
+  normal run reported approximately 8.9 s and the strict run approximately
+  8.5 s; fresh-profile warm-up varies, so these are not steady-state
   performance measurements.
 - The synthetic fixture reported a background mismatch, so the receiving peer
-  decoded a visible graceful fallback (`[81, 251, 36, 255]` normal and
-  `[85, 253, 33, 255]` strict) rather than a falsely accepted replacement plate.
+  decoded a visible graceful fallback (`[80, 251, 38, 255]` normal and
+  `[81, 238, 71, 255]` strict) rather than a falsely accepted replacement plate.
 - Reappearance restored current live imagery.
 - Disablement restored the original sender track and ended the processed track.
 - Microphone requests: **0**; camera input was browser-generated synthetic video.
@@ -288,11 +310,13 @@ The generated `dist/` package contains:
 - `content.js`
 - `page-bridge.js`
 - `hand-gesture-worker.js`
+- `face-landmarker-worker.js`
 - `background.js`
 - `popup.html`, `popup.js`, `popup.css`
 - `icons/veyl-16.png`, `veyl-32.png`, `veyl-48.png`, `veyl-128.png`
 - `models/selfie_segmenter.tflite`
 - `models/hand_landmarker.task`
+- `models/face_landmarker.task`
 - `models/models.json`
 - `licenses/NOTICE.md`, `licenses/Apache-2.0.txt`
 - MediaPipe `wasm/` assets
@@ -300,7 +324,8 @@ The generated `dist/` package contains:
 ## Manual verification still required
 
 Google Chrome is not installed here. The isolated Brave synthetic test above is
-available, but no real Meet/OmeTV call or physical camera/gesture test was made.
+available, but no real Meet/OmeTV call or physical camera/gesture/face-overlay
+test was made.
 Do not claim these manual Chrome checks are complete:
 
 The user has separately reported a Chrome Google Meet trial in which the prior

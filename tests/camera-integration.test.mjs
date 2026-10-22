@@ -19,11 +19,12 @@ const bundled = await build({
   plugins: [{
     name: 'mock-model-engines',
     setup(builder) {
-      builder.onResolve({ filter: /(?:person-segmenter|hand-gesture-detector)$/ }, ({ path }) => ({ path, namespace: 'models' }));
+      builder.onResolve({ filter: /(?:person-segmenter|hand-gesture-detector|face-landmarker)$/ }, ({ path }) => ({ path, namespace: 'models' }));
       builder.onLoad({ filter: /.*/, namespace: 'models' }, ({ path }) => {
         const hands = path.includes('hand-gesture');
-        const kind = hands ? 'hand' : 'segment';
-        const name = hands ? 'HandGestureDetector' : 'PersonSegmenter';
+        const faces = path.includes('face-landmarker');
+        const kind = faces ? 'face' : hands ? 'hand' : 'segment';
+        const name = faces ? 'FaceLandmarkerDetector' : hands ? 'HandGestureDetector' : 'PersonSegmenter';
         return { contents: `export class ${name} {
           ready = false;
           state = globalThis.__cameraModels;
@@ -51,6 +52,10 @@ const bundled = await build({
             return this.state.invalidMask ? { width: 2, height: 1, data: new Float32Array([1]) } : { width: 1, height: 1, data: new Float32Array([1]) };
           }
            detect(video) {
+             if (${faces}) {
+               this.state.faceInferences++;
+               return this.state.faceResult ?? { timestamp: 0, pose: null, inferenceMs: 1 };
+             }
              this.state.inferences.hand++;
              this.state.handSources.push(video.srcObject.getVideoTracks()[0].id);
              if (this.state.handError) throw new Error('bad hand frame');
@@ -80,6 +85,7 @@ const { CameraPipeline, installCameraIntegration, Compositor } = await import(`d
 
 const settings = {
   realTimeRemoval: false, useBackgroundPlate: false, gestureDetection: false,
+  characterStudio: false,
   gestureSensitivity: 0.62, gestureCooldownMs: 1100, animations: false,
   animationIntensity: 0.7, performanceMode: 'balanced'
 };
@@ -108,6 +114,11 @@ function environment(t, overrides = {}) {
        confirmGestureKind: null
     }
   };
+  for (const bucket of ['loads', 'closes', 'live', 'maxLive', 'inFlight', 'maxInFlight', 'resets']) {
+    Object.defineProperty(env.models[bucket], 'face', { configurable: true, enumerable: false, writable: true, value: 0 });
+  }
+  env.models.faceInferences = 0;
+  env.models.faceResult = null;
 
   class NativeTrack extends EventTarget {
     constructor(kind = 'video', options = {}) {
@@ -176,7 +187,7 @@ function environment(t, overrides = {}) {
   class Canvas {
     constructor() {
       this.width = 300; this.height = 150;
-      this.draws = []; this.maskWrites = 0; this.offFrames = 0;
+       this.draws = []; this.maskWrites = 0; this.offFrames = 0; this.overlayStrokes = 0;
       const canvas = this;
       this.context = {
         drawImage(source) {
@@ -186,7 +197,8 @@ function environment(t, overrides = {}) {
         putImageData(image) { canvas.maskWrites++; canvas.lastMask = new Uint8ClampedArray(image.data); },
         fillRect() { canvas.offFrames++; },
         setTransform() {}, save() {}, restore() {}, clearRect() {},
-        translate() {}, rotate() {}, beginPath() {}, arc() {}, stroke() {}
+         translate() {}, rotate() {}, beginPath() {}, arc() {}, lineTo() {}, moveTo() {},
+         quadraticCurveTo() {}, closePath() {}, fill() {}, stroke() { canvas.overlayStrokes++; }
       };
       env.canvases.push(this);
     }
@@ -708,6 +720,52 @@ test('enabling alone and setting assets/settings do not acquire cameras or load 
   await integration.setActive(true);
   assert.equal(env.calls.length, 0);
   assert.deepEqual(env.models.loads, { segment: 0, hand: 0 });
+  assert.equal(env.models.loads.face, 0);
+});
+
+test('Character Studio opt-in is lifecycle-safe and releases its face model', async (t) => {
+  const env = environment(t, { realTimeRemoval: true, gestureDetection: true });
+  await env.pipeline.setAssetBaseUrl('https://extension.test/');
+  const camera = env.camera();
+  const output = (await env.pipeline.attach(camera.stream)).getVideoTracks()[0];
+  await flush();
+  const canvasCount = env.canvases.length;
+  assert.deepEqual(env.models.loads, { segment: 1, hand: 1 });
+
+  await env.pipeline.setSettings({ ...settings, realTimeRemoval: true, gestureDetection: true, characterStudio: true });
+  await flush();
+  assert.deepEqual(env.models.loads, { segment: 1, hand: 1 });
+  assert.deepEqual(env.models.live, { segment: 1, hand: 1 });
+  assert.equal(env.canvases.length, canvasCount);
+  assert.equal(output.readyState, 'live');
+
+  await env.pipeline.setSettings({ ...settings, realTimeRemoval: true, gestureDetection: true, characterStudio: false });
+  assert.deepEqual(env.models.live, { segment: 1, hand: 1 });
+  assert.equal(output.readyState, 'live');
+  assert.equal(camera.audio.stopCalls, 0);
+});
+
+test('one local face pose draws on the existing output and is suppressed during effects', async (t) => {
+  const env = environment(t, { realTimeRemoval: false, gestureDetection: false, characterStudio: true });
+  env.models.faceResult = { timestamp: 1000, pose: { centerX: 0.5, centerY: 0.45, width: 0.3, height: 0.12, roll: 0.03 }, inferenceMs: 2 };
+  await env.pipeline.setAssetBaseUrl('https://extension.test/');
+  const camera = env.camera();
+  const returned = await env.pipeline.attach(camera.stream);
+  await flush();
+  assert.equal(env.models.loads.face, 1);
+  assert.equal(env.captures.length, 1);
+  await env.tick(1000);
+  await env.tick(1120);
+  const canvas = env.captures[0].canvas;
+  assert.ok(canvas.overlayStrokes > 0);
+  const visibleStrokes = canvas.overlayStrokes;
+  assert.equal(env.pipeline.toggleEffect(), true);
+  await env.tick(1200);
+  assert.equal(canvas.overlayStrokes, visibleStrokes, 'the hidden transition must not receive a stale visor');
+  await env.pipeline.setSettings({ ...settings, characterStudio: false });
+  assert.equal(env.models.live.face, 0);
+  assert.equal(returned.getVideoTracks()[0].readyState, 'live');
+  assert.equal(camera.audio.stopCalls, 0);
 });
 
 test('enabled polling and nonterminal mute/unmute pause ML without altering consumer enabled state', async (t) => {

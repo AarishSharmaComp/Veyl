@@ -4,6 +4,9 @@ import { HandGestureDetector, HandGestureResult } from '../gestures/hand-gesture
 import { HandGestureWorkerClient } from '../gestures/hand-gesture-worker-client';
 import { BackgroundManager } from './background-manager';
 import { Compositor } from './compositor';
+import { FaceLandmarkerDetector, FaceTrackingResult } from './face-landmarker';
+import { FaceLandmarkerWorkerClient } from './face-landmarker-worker-client';
+import { FaceOverlayRenderer } from './face-overlay-renderer';
 import { PerformanceManager } from './performance-manager';
 import { PersonSegmenter, SegmentationFrame } from './person-segmenter';
 
@@ -52,6 +55,16 @@ interface HandInferenceClient {
   readonly offloadError: string | null;
 }
 
+interface FaceInferenceClient {
+  initialize(wasmBaseUrl: string, modelUrl: string): Promise<void>;
+  detect(video: HTMLVideoElement, timestamp: number): FaceTrackingResult | Promise<FaceTrackingResult | null> | null;
+  reset(): void;
+  close(): void;
+  readonly ready: boolean;
+  readonly offloaded: boolean;
+  readonly offloadError: string | null;
+}
+
 /**
  * One active processed camera view per tab, shared by independently stoppable
  * output tracks. The newest live acquisition supplies that view; an older live
@@ -64,8 +77,11 @@ export class CameraPipeline {
   private readonly segmenter = new PersonSegmenter();
   private handDetector: HandInferenceClient;
   private handWorkerSelected = false;
+  private faceDetector: FaceInferenceClient | null = null;
+  private faceWorkerSelected = false;
   private readonly performance = new PerformanceManager();
   private readonly disappearance = new DisappearanceEffect();
+  private readonly faceOverlay = new FaceOverlayRenderer();
   private readonly sources = new Map<MediaStreamTrack, CameraSource>();
   private readonly originals = new WeakMap<MediaStreamTrack, CameraSource>();
   private readonly outputs = new WeakMap<MediaStreamTrack, OutputLease>();
@@ -91,10 +107,16 @@ export class CameraPipeline {
   // prevents a rapid off/on from constructing overlapping model instances.
   private modelInit: Promise<void> | null = null;
   private handModelInit: Promise<void> | null = null;
+  private faceModelInit: Promise<void> | null = null;
   private modelEpoch = 0;
   private handEpoch = 0;
+  // Character Studio lifecycle is independent from segmentation and gesture
+  // resources so its opt-in model can be acquired and released separately.
+  private characterStudioEnabled = false;
+  private characterStudioEpoch = 0;
   private modelFailed = false;
   private handModelFailed = false;
+  private faceModelFailed = false;
   private assetBaseUrl = '';
   private latestMask: SegmentationFrame | null = null;
   private latestMaskAt = -Infinity;
@@ -108,14 +130,21 @@ export class CameraPipeline {
   private lastHandInferenceRequestAt = -Infinity;
   private handInferenceInFlight: Promise<void> | null = null;
   private handInferenceGeneration = 0;
+  private faceInferenceInFlight: Promise<void> | null = null;
+  private faceInferenceGeneration = 0;
   private lastCompletedHandTimestamp = -Infinity;
+  private lastFaceInferenceRequestAt = -Infinity;
+  private lastFaceResultTimestamp = -Infinity;
+  private lastFaceInferenceMs = 0;
   private handInferenceSamples = 0;
+  private faceInferenceSamples = 0;
   private reloadRequired = false;
   private settingsValue: VeylSettings;
   private status: PipelineStatus = { ...DEFAULT_STATUS };
 
   constructor(settings: VeylSettings, private readonly onEvent: PipelineEventHandler) {
     this.settingsValue = { ...settings };
+    this.characterStudioEnabled = settings.characterStudio === true;
     this.performance.setMode(settings.performanceMode);
     this.handWorkerSelected = typeof Worker === 'function' && typeof createImageBitmap === 'function';
     this.handDetector = this.handWorkerSelected ? new HandGestureWorkerClient() : new HandGestureDetector();
@@ -123,23 +152,27 @@ export class CameraPipeline {
 
   async setAssetBaseUrl(assetBaseUrl: string): Promise<void> {
     if (this.assetBaseUrl !== assetBaseUrl) {
+      this.invalidateCharacterStudioLifecycle();
       this.closeModels();
       this.modelFailed = false;
       this.handModelFailed = false;
     }
     this.assetBaseUrl = assetBaseUrl;
-    await Promise.all([this.ensureModel(), this.ensureHandModel()]);
+    await Promise.all([this.ensureModel(), this.ensureHandModel(), this.ensureFaceModel()]);
   }
 
   async setSettings(settings: VeylSettings): Promise<void> {
     const previous = this.settingsValue;
     this.settingsValue = { ...settings };
+    this.syncCharacterStudioLifecycle(settings.characterStudio);
+    if (!settings.characterStudio && previous.characterStudio) this.closeFaceModel();
+    if (settings.characterStudio !== previous.characterStudio) this.faceModelFailed = false;
     this.performance.setMode(settings.performanceMode);
     if (previous.realTimeRemoval && !settings.realTimeRemoval) this.restoreVisibleLiveFrame();
     if (!settings.gestureDetection && previous.gestureDetection) this.closeHands();
     if (settings.realTimeRemoval !== previous.realTimeRemoval) this.modelFailed = false;
     if (settings.gestureDetection !== previous.gestureDetection) this.handModelFailed = false;
-    await Promise.all([this.ensureModel(), this.ensureHandModel()]);
+    await Promise.all([this.ensureModel(), this.ensureHandModel(), this.ensureFaceModel()]);
     this.emitStatus(true);
   }
 
@@ -426,6 +459,8 @@ export class CameraPipeline {
   }
 
   private resetSourceState(): void {
+    this.invalidateCharacterStudioLifecycle();
+    this.resetFaceTrackingState();
     this.latestMask = null;
     this.latestMaskAt = -Infinity;
     this.lastRenderedTimestamp = -Infinity;
@@ -555,6 +590,8 @@ export class CameraPipeline {
   dispose(): void {
     this.disposed = true;
     this.processingEnabled = false;
+    this.invalidateCharacterStudioLifecycle();
+    this.closeFaceModel();
     this.stop();
     this.assetBaseUrl = '';
   }
@@ -671,6 +708,9 @@ export class CameraPipeline {
     const sourceVideo = this.activeSource?.video;
     if (!sourceVideo) return false;
     const transition = nextActive ? 'disappear' : 'reappear';
+    this.faceOverlay.reset();
+    this.faceInferenceGeneration += 1;
+    this.lastFaceResultTimestamp = -Infinity;
     const mask = this.latestMask && this.lastRenderedTimestamp - this.latestMaskAt <= 300 ? this.latestMask : null;
     this.compositor.beginDisintegration(
       sourceVideo,
@@ -701,6 +741,7 @@ export class CameraPipeline {
       else {
         this.modelFailed = false;
         this.handModelFailed = false;
+        this.faceModelFailed = false;
       }
     }
     this.status.cameraAvailable = !!this.activeSource && this.activeSource.track.readyState === 'live' &&
@@ -708,6 +749,7 @@ export class CameraPipeline {
     if (enabled) {
       void this.ensureModel();
       void this.ensureHandModel();
+      void this.ensureFaceModel();
     }
     if (changed) this.emitStatus(true);
   }
@@ -746,6 +788,80 @@ export class CameraPipeline {
   private closeModels(): void {
     this.closeSegmentation();
     this.closeHands();
+    this.closeFaceModel();
+  }
+
+  private resetFaceTrackingState(): void {
+    this.faceInferenceGeneration += 1;
+    this.faceInferenceInFlight = null;
+    this.lastFaceInferenceRequestAt = -Infinity;
+    this.lastFaceResultTimestamp = -Infinity;
+    this.faceInferenceSamples = 0;
+    this.faceOverlay.reset();
+    this.faceDetector?.reset();
+  }
+
+  private closeFaceModel(): void {
+    this.invalidateCharacterStudioLifecycle();
+    this.resetFaceTrackingState();
+    this.faceModelInit = null;
+    this.faceDetector?.close();
+    this.faceDetector = null;
+    this.faceWorkerSelected = false;
+    this.faceModelFailed = false;
+  }
+
+  private syncCharacterStudioLifecycle(enabled: boolean): void {
+    const nextEnabled = enabled === true;
+    if (nextEnabled === this.characterStudioEnabled) return;
+    this.characterStudioEnabled = nextEnabled;
+    this.characterStudioEpoch += 1;
+  }
+
+  private invalidateCharacterStudioLifecycle(): void {
+    this.characterStudioEpoch += 1;
+  }
+
+  private async ensureFaceModel(): Promise<void> {
+    if (!this.characterStudioEnabled || !this.canInfer() || !this.assetBaseUrl || this.faceModelFailed) return;
+    if (!this.faceDetector) {
+      this.faceWorkerSelected = typeof Worker === 'function' && typeof createImageBitmap === 'function';
+      this.faceDetector = this.faceWorkerSelected ? new FaceLandmarkerWorkerClient() : new FaceLandmarkerDetector();
+    }
+    const detector = this.faceDetector;
+    if (detector.ready) return;
+    if (this.faceModelInit) return this.faceModelInit;
+    const epoch = this.characterStudioEpoch;
+    const operation = (async () => {
+      let activeDetector = detector;
+      try {
+        const wasmUrl = new URL('wasm/', this.assetBaseUrl).toString();
+        const modelUrl = new URL('models/face_landmarker.task', this.assetBaseUrl).toString();
+        try {
+          await detector.initialize(wasmUrl, modelUrl);
+        } catch (workerError) {
+          if (!this.faceWorkerSelected) throw workerError;
+          if (epoch !== this.characterStudioEpoch || !this.characterStudioEnabled || !this.canInfer()) return;
+          console.warn('[Veyl] Face worker unavailable; falling back to main-thread tracking.', workerError);
+          detector.close();
+          activeDetector = new FaceLandmarkerDetector();
+          this.faceDetector = activeDetector;
+          this.faceWorkerSelected = false;
+          await activeDetector.initialize(wasmUrl, modelUrl);
+        }
+        if (epoch !== this.characterStudioEpoch || !this.characterStudioEnabled || !this.canInfer() || this.faceDetector !== activeDetector) {
+          activeDetector.close();
+          return;
+        }
+      } catch (error) {
+        if (epoch !== this.characterStudioEpoch) return;
+        this.faceModelFailed = true;
+        this.faceOverlay.reset();
+        this.fail(`Face overlay could not start: ${toErrorMessage(error)}. Existing camera effects remain available.`);
+      }
+    })();
+    this.faceModelInit = operation;
+    try { await operation; } finally { if (this.faceModelInit === operation) this.faceModelInit = null; }
   }
 
   private async ensureModel(): Promise<void> {
@@ -822,6 +938,7 @@ export class CameraPipeline {
         this.latestMaskAt = -Infinity;
         this.handInferenceGeneration += 1;
         this.handDetector.reset();
+        this.resetFaceTrackingState();
         if (this.activeSource) this.safeLiveFrame(this.activeSource.video);
         this.fail(`Camera processing recovered from a frame error: ${toErrorMessage(error)}`);
       }).finally(() => this.scheduleFrame());
@@ -873,6 +990,76 @@ export class CameraPipeline {
         }
       });
     this.handInferenceInFlight = operation;
+  }
+
+  private scheduleFaceInference(video: HTMLVideoElement, timestamp: number, frameLifecycle: number, source: CameraSource): void {
+    const detector = this.faceDetector;
+    if (!this.characterStudioEnabled || !detector?.ready || this.faceInferenceInFlight ||
+      timestamp - this.lastFaceInferenceRequestAt < this.faceInferenceIntervalMs()) return;
+
+    this.lastFaceInferenceRequestAt = timestamp;
+    const generation = this.faceInferenceGeneration;
+    const detect = () => detector.detect(video, timestamp);
+    const detected = this.faceWorkerSelected
+      ? (() => {
+        try { return Promise.resolve(detect()); } catch (error) { return Promise.reject(error); }
+      })()
+      : Promise.resolve().then(detect);
+    let operation: Promise<void>;
+    operation = detected
+      .then((result) => this.applyFaceResult(result, timestamp, frameLifecycle, generation, source))
+      .catch((error) => this.handleFaceInferenceError(error, generation, detector, timestamp))
+      .finally(() => {
+        if (this.faceInferenceInFlight === operation) this.faceInferenceInFlight = null;
+      });
+    this.faceInferenceInFlight = operation;
+  }
+
+  private applyFaceResult(
+    result: FaceTrackingResult | null,
+    timestamp: number,
+    frameLifecycle: number,
+    generation: number,
+    source: CameraSource
+  ): void {
+    if (generation !== this.faceInferenceGeneration || frameLifecycle !== this.lifecycle || !this.running ||
+      !this.processingEnabled || this.activeSource !== source || !this.characterStudioEnabled ||
+      this.disappearance.state !== 'none' || !result || result.timestamp <= this.lastFaceResultTimestamp) return;
+    this.lastFaceResultTimestamp = result.timestamp;
+    this.lastFaceInferenceMs = Number.isFinite(result.inferenceMs) ? Math.max(0, result.inferenceMs) : 0;
+    this.faceInferenceSamples += 1;
+    this.faceOverlay.update(result.pose, result.timestamp);
+  }
+
+  private handleFaceInferenceError(error: unknown, generation: number, detector: FaceInferenceClient, timestamp: number): void {
+    if (generation !== this.faceInferenceGeneration || detector !== this.faceDetector) return;
+    const message = toErrorMessage(error);
+    this.faceOverlay.markMissing(timestamp);
+    if (this.faceWorkerSelected) {
+      this.switchToMainThreadFaceDetector(message);
+      return;
+    }
+    this.status.error = `A face overlay frame was skipped: ${message}`;
+    this.emitStatus(true);
+  }
+
+  private switchToMainThreadFaceDetector(reason: string): void {
+    if (!this.faceWorkerSelected || !this.faceDetector) return;
+    this.faceWorkerSelected = false;
+    this.faceInferenceGeneration += 1;
+    this.faceDetector.close();
+    this.faceDetector = new FaceLandmarkerDetector();
+    this.faceModelFailed = false;
+    console.warn(`[Veyl] Face worker failed; using main-thread face tracking: ${reason}`);
+    if (this.characterStudioEnabled && this.canInfer()) void this.ensureFaceModel();
+  }
+
+  private faceInferenceIntervalMs(): number {
+    const base = this.settingsValue.performanceMode === 'quality' ? 80
+      : this.settingsValue.performanceMode === 'performance' ? 150 : 110;
+    return this.faceInferenceSamples < 2 || this.lastFaceInferenceMs <= 0
+      ? base
+      : Math.max(base, Math.ceil(this.lastFaceInferenceMs * 1.45));
   }
 
   private applyHandResult(
@@ -994,6 +1181,7 @@ export class CameraPipeline {
     // a slow mask frame must not delay the next camera frame or invalidate a
     // temporal hand sequence. Only one worker request is in flight at a time.
     this.scheduleHandInference(video, timestamp, frameLifecycle, source);
+    this.scheduleFaceInference(video, timestamp, frameLifecycle, source);
     if (this.segmenter.ready && this.performance.shouldInfer(timestamp)) {
       this.performance.beginInference(timestamp);
       const started = performance.now();
@@ -1026,6 +1214,9 @@ export class CameraPipeline {
         backgroundMismatch: this.status.backgroundMismatch
       });
       if (this.settingsValue.animations) this.compositor.renderDisintegration(this.compositor.canvas.getContext('2d')!, effectFrame);
+    }
+    if (effectFrame.state === 'none') {
+      this.faceOverlay.render(this.compositor.canvas.getContext('2d')!, this.compositor.canvas.width, this.compositor.canvas.height, timestamp);
     }
     this.performance.recordFrame(timestamp);
     if (this.backgroundManager.ready && timestamp - this.lastMismatchCheck > 1800 && !this.mismatchCheckPending) {

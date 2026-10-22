@@ -16,6 +16,8 @@ export function validateBuild(directory) {
   assert.ok(manifest.optional_host_permissions.includes('https://*/*'));
   assert.ok(manifest.web_accessible_resources.some((entry) => entry.resources.includes('hand-gesture-worker.js')),
     'The hand worker must be exposed only through the existing selected-page resource boundary');
+  assert.ok(manifest.web_accessible_resources.some((entry) => entry.resources.includes('face-landmarker-worker.js')),
+    'The face worker must be exposed only through the existing selected-page resource boundary');
   assert.ok(!('cover' in manifest || 'promotional_image' in manifest), 'Store art is not a manifest field');
 
   const file = (path) => {
@@ -44,12 +46,14 @@ export function validateBuild(directory) {
   assert.match(pageBridge, /__veylMediaPipeCreateScriptUrl/, 'Page bridge must use the VEYL MediaPipe loader adapter');
   assert.doesNotMatch(pageBridge, /goog#html/, 'The upstream unrestricted MediaPipe Trusted Types policy must not ship');
   assert.doesNotMatch(pageBridge, /\beval\s*\(|new\s+Function\s*\(/, 'Packaged page bridge must not introduce dynamic code execution');
-  const handWorker = file('hand-gesture-worker.js').toString();
-  assert.doesNotMatch(handWorker, /goog#html/, 'The upstream unrestricted MediaPipe Trusted Types policy must not ship in the hand worker');
-  assert.doesNotMatch(handWorker, /\beval\s*\(|new\s+Function\s*\(/, 'Packaged hand worker must not introduce dynamic code execution');
+  for (const [workerPath, label] of [['hand-gesture-worker.js', 'hand'], ['face-landmarker-worker.js', 'face']]) {
+    const worker = file(workerPath).toString();
+    assert.doesNotMatch(worker, /goog#html/, `The upstream unrestricted MediaPipe Trusted Types policy must not ship in the ${label} worker`);
+    assert.doesNotMatch(worker, /\beval\s*\(|new\s+Function\s*\(/, `Packaged ${label} worker must not introduce dynamic code execution`);
+  }
   file('licenses/NOTICE.md'); file('licenses/Apache-2.0.txt');
   const provenance = JSON.parse(file('models/models.json').toString());
-  assert.deepEqual(provenance.models.map((model) => model.file).sort(), ['hand_landmarker.task', 'selfie_segmenter.tflite'],
+  assert.deepEqual(provenance.models.map((model) => model.file).sort(), ['face_landmarker.task', 'hand_landmarker.task', 'selfie_segmenter.tflite'],
     'Model metadata must list each required model exactly once');
   for (const model of provenance.models) {
     const buffer = file(`models/${model.file}`);

@@ -6,6 +6,7 @@ export interface VeylSettings {
   realTimeRemoval: boolean;
   useBackgroundPlate: boolean;
   gestureDetection: boolean;
+  characterStudio: boolean;
   gestureSensitivity: number;
   gestureCooldownMs: number;
   animations: boolean;
@@ -159,6 +160,7 @@ export const DEFAULT_SETTINGS: VeylSettings = {
   realTimeRemoval: true,
   useBackgroundPlate: true,
   gestureDetection: false,
+  characterStudio: false,
   gestureSensitivity: 0.62,
   gestureCooldownMs: 1100,
   animations: true,

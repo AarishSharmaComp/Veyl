@@ -29,6 +29,9 @@ sender, and documents the remaining browser-level verification honestly.
   inference, with thumb–middle snap and closed-fist gestures plus transferable
   `ImageBitmap` worker offload when the host page permits it. Veyl does **not**
   request microphone access for this feature.
+- Optional single-face Character Studio mode with a local MediaPipe Face
+  Landmarker and one Canvas-drawn 2D visor overlay. It is disabled by default,
+  worker-first, and suppressed during disappearance/reappearance transitions.
 - Dark, compact Veyl popup with site management and camera status.
 - No camera-frame, mask, hand-landmark, background, or audio uploads.
 
@@ -70,11 +73,12 @@ is not an atomic filesystem exchange. If publication and rollback both fail,
 the error identifies the preserved previous output for manual recovery. It includes:
 
 - `manifest.json`
-- bundled content, page, hand-worker, service-worker, and popup scripts
+- bundled content, page, hand-worker, face-worker, service-worker, and popup scripts
 - popup HTML/CSS
 - Veyl icons at 16, 32, 48, and 128 pixels
 - `selfie_segmenter.tflite`
 - `hand_landmarker.task`
+- `face_landmarker.task`
 - MediaPipe WASM files
 - model provenance/checksums and third-party license notices
 

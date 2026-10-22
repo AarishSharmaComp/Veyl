@@ -39,9 +39,12 @@ function environment() {
   const send = (message, origin = 'https://video.example') => {
     for (const handler of listeners.get('message') ?? []) handler({ source: window, origin, data: { source: 'veyl-content', ...message } });
   };
-  const config = (enabled, extra = {}) => send({ type: 'CONFIG', sessionId: 'session-id-123', payload: { siteKey: 'https://video.example', siteLabel: 'Test site',
-    sessionId: 'session-id-123', siteEnabled: enabled, hostPermissionGranted: enabled,
-    settings: { gestureDetection: false }, background: null, assetBaseUrl: 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/', ...extra } });
+  const config = (enabled, extra = {}) => {
+    const { settings = {}, ...payload } = extra;
+    send({ type: 'CONFIG', sessionId: 'session-id-123', payload: { siteKey: 'https://video.example', siteLabel: 'Test site',
+      sessionId: 'session-id-123', siteEnabled: enabled, hostPermissionGranted: enabled,
+      settings: { gestureDetection: false, ...settings }, background: null, assetBaseUrl: 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/', ...payload } });
+  };
   return { window, context, messages, media, listeners, intervals, send, config };
 }
 
@@ -57,6 +60,13 @@ test('enabled configuration binds the exact origin, and duplicate injection does
   const count = env.listeners.get('message').size;
   vm.runInContext(bundle.outputFiles[0].text, env.context); assert.equal(env.listeners.get('message').size, count);
   assert.equal(env.media.installs, 1);
+});
+test('configuration defaults Character Studio off and forwards an explicit opt-in', async () => {
+  const env = environment();
+  env.config(true); await flush();
+  assert.equal(env.media.settings.at(-1).characterStudio, false);
+  env.config(true, { settings: { characterStudio: true } }); await flush();
+  assert.equal(env.media.settings.at(-1).characterStudio, true);
 });
 test('wrong-origin and stale-session commands cannot toggle or capture', async () => {
   const env = environment(); env.config(true); await flush(); env.media.pipeline.currentStatus.cameraAvailable = true; env.media.pipeline.currentStatus.pipelineInitialized = true;

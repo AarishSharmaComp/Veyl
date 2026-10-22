@@ -66,9 +66,23 @@ test('legacy Meet settings/plate migrate but audio consent does not enable camer
   assert.equal(state.profiles[meet].settings.realTimeRemoval, false);
   assert.equal(state.profiles[meet].settings.gestureSensitivity, .85);
   assert.equal(state.profiles[meet].settings.gestureDetection, false);
+  assert.equal(state.profiles[meet].settings.characterStudio, false);
   assert.deepEqual(state.profiles[meet].background, plate);
   assert.equal(sanitizeSettings({ gestureDetection: 'yes', gestureSensitivity: NaN }).gestureDetection, false);
   assert.equal(sanitizeSettings({ gestureDetection: true, gestureCooldownMs: -1 }).gestureCooldownMs, 450);
+  assert.equal(sanitizeSettings({}).characterStudio, false);
+  assert.equal(sanitizeSettings({ characterStudio: true }).characterStudio, true);
+  for (const value of [false, 'true', 1, null, {}, []]) {
+    assert.equal(sanitizeSettings({ characterStudio: value }).characterStudio, false);
+  }
+});
+
+test('explicit Character Studio opt-in survives stored-profile migration and frame configuration', async () => {
+  const state = migrateStoredState({ siteProfiles: { [meet]: { enabled: true, settings: { characterStudio: true } } } });
+  assert.equal(state.profiles[meet].settings.characterStudio, true);
+  const env = environment({ siteProfiles: { [meet]: { enabled: true, settings: { characterStudio: true } } } });
+  await env.manager.initialize();
+  assert.equal((await env.manager.frameConfig(meet)).profile.settings.characterStudio, true);
 });
 
 test('host permission alone never enables processing or registration', async () => {

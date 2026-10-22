@@ -7,11 +7,13 @@ are included in `Apache-2.0.txt`. This notice and the complete license are
 distributed with the extension, independently of comments in upstream's
 prebundled JavaScript. The build also preserves marked legal comments when present.
 
-The two unmodified Google MediaPipe model assets and their versioned official
+The three unmodified Google MediaPipe model assets and their versioned official
 source URLs, sizes, SHA-256 checksums, and purposes are listed in
 `models/models.json`. Models are loaded from this extension, not downloaded
-from those URLs at runtime. They provide person masks and hand landmarks, not
-an upstream finger-snap classifier.
+from those URLs at runtime. They provide person masks, hand landmarks, and
+single-face landmarks; the snap classifier and visor renderer are original Veyl
+code. The face landmarker model is distributed under the terms stated by its
+official MediaPipe model documentation and model card.
 
 Upstream project and license:
 https://github.com/google-ai-edge/mediapipe

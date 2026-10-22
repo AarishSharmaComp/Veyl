@@ -10,13 +10,13 @@ window.addEventListener('message', ({ data }) => {
   if (data.type === 'COMMAND_RESULT') smoke.replies.set(data.requestId, data.payload);
 });
 
-smoke.configure = (baseUrl, enabled = true, realTimeRemoval = true) => {
+smoke.configure = (baseUrl, enabled = true, realTimeRemoval = true, characterStudio = false) => {
   const plate = document.createElement('canvas'); plate.width = 640; plate.height = 480;
   const context = plate.getContext('2d'); context.fillStyle = '#c02040'; context.fillRect(0, 0, 640, 480);
   window.postMessage({ source: 'veyl-content', type: 'CONFIG', sessionId, payload: {
     siteKey: location.origin, siteLabel: 'Synthetic loopback fixture', sessionId,
     siteEnabled: enabled, hostPermissionGranted: enabled, assetBaseUrl: baseUrl,
-    settings: { realTimeRemoval, gestureDetection: true, gestureSensitivity: .62, gestureCooldownMs: 1100,
+    settings: { realTimeRemoval, gestureDetection: true, characterStudio, gestureSensitivity: .62, gestureCooldownMs: 1100,
       animations: false, animationIntensity: 0, performanceMode: 'performance', useBackgroundPlate: true },
     background: { dataUrl: plate.toDataURL('image/png'), width: 640, height: 480, capturedAt: Date.now() }
   } }, location.origin);

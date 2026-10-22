@@ -29,6 +29,7 @@ test('Manifest brands Veyl and limits injection to built-in plus optional origin
   assert.ok(contentScripts.some((entry) => entry.js?.includes('content.js') && entry.run_at === 'document_start'));
   assert.ok(contentScripts.some((entry) => entry.js?.includes('page-bridge.js') && entry.run_at === 'document_start' && entry.world === 'MAIN'));
   assert.ok(contentScripts.every((entry) => entry.matches.every((match) => match === 'https://meet.google.com/*')));
+  assert.ok(manifest.web_accessible_resources.some((entry) => entry.resources.includes('face-landmarker-worker.js')));
   assert.ok(!manifest.web_accessible_resources[0].resources.some((resource) => resource.includes('background')));
 });
 
@@ -66,9 +67,15 @@ test('The compositor has an honest degraded fallback and reusable mask buffers',
 test('The local model is present in source assets', () => {
   assert.ok(existsSync(resolve(root, 'public/models/selfie_segmenter.tflite')));
   assert.ok(existsSync(resolve(root, 'public/models/hand_landmarker.task')));
+  assert.ok(existsSync(resolve(root, 'public/models/face_landmarker.task')));
   for (const size of [16, 32, 48, 128]) assert.ok(existsSync(resolve(root, `public/icons/veyl-${size}.png`)));
   assert.ok(existsSync(resolve(root, 'assets/brand/veyl-mark.svg')));
   assert.ok(existsSync(resolve(root, 'assets/promotional/veyl-cover.svg')));
+});
+
+test('Character Studio is an explicit popup opt-in', () => {
+  assert.match(read('src/popup/popup.html'), /id="character-toggle"/);
+  assert.match(read('src/popup/popup.ts'), /characterStudio: elements\.characterToggle\.checked/);
 });
 
 test('The active detector is camera-based and does not contain microphone analysis', () => {

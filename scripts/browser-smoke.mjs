@@ -100,7 +100,7 @@ try {
   await page.call('Page.navigate', { url: `http://127.0.0.1:${port}/` });
   await waitFor(() => page.evaluate('Boolean(window.veylSmoke?.configure)'), 'Fixture bootstrap');
   if (trustedTypesEnforced) assert.equal(await page.evaluate('Boolean(window.trustedTypes)'), true);
-  await page.evaluate(`window.veylSmoke.configure(${JSON.stringify(baseUrl)})`);
+  await page.evaluate(`window.veylSmoke.configure(${JSON.stringify(baseUrl)},true,true,true)`);
   const started = await page.evaluate('window.veylSmoke.start()');
   assert.equal(started.microphoneRequests, 0);
   await waitFor(() => page.evaluate('window.veylSmoke.remote?.readyState >= 2 && window.veylSmoke.status?.cameraRoute === "outbound"'), 'Loopback processed video');
@@ -108,7 +108,7 @@ try {
   await waitFor(() => page.evaluate('window.veylSmoke.status?.lastHandInferenceAt !== null'), 'First hand inference', 45000);
   const modelState = await page.evaluate('({modelReady:veylSmoke.status.modelReady, handModelReady:veylSmoke.status.gestureDetectionActive, handInferenceOffloaded:veylSmoke.status.handInferenceOffloaded, handInferenceOffloadError:veylSmoke.status.handInferenceOffloadError, handInferenceMs:veylSmoke.status.handInferenceMs, workerType:typeof Worker, imageBitmapType:typeof createImageBitmap, fps:veylSmoke.status.fps})');
 
-  await page.evaluate(`window.veylSmoke.configure(${JSON.stringify(baseUrl)},true,false)`);
+  await page.evaluate(`window.veylSmoke.configure(${JSON.stringify(baseUrl)},true,false,true)`);
   await waitFor(() => page.evaluate('window.veylSmoke.status?.modelReady === true'), 'Segmentation remains available with normal removal compositing off');
   const requestId = await page.evaluate('window.veylSmoke.toggle()');
   await waitFor(() => page.evaluate(`window.veylSmoke.replies.get(${JSON.stringify(requestId)})?.ok`), 'Disappear command');

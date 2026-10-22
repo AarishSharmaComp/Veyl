@@ -21,7 +21,7 @@ function fixture(t) {
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const manifest = JSON.parse(readFileSync(new URL('../public/manifest.json', import.meta.url), 'utf8'));
   writeJson(directory, 'manifest.json', manifest);
-  for (const path of ['content.js', 'page-bridge.js', 'hand-gesture-worker.js', 'background.js', 'popup.html', 'popup.js', 'popup.css',
+  for (const path of ['content.js', 'page-bridge.js', 'hand-gesture-worker.js', 'face-landmarker-worker.js', 'background.js', 'popup.html', 'popup.js', 'popup.css',
     'licenses/NOTICE.md', 'licenses/Apache-2.0.txt']) {
     writeAsset(directory, path, 'test fixture\n');
   }
@@ -30,7 +30,7 @@ function fixture(t) {
     writeAsset(directory, path, readFileSync(new URL(`../public/${path}`, import.meta.url)));
   }
   const provenance = {
-    models: ['selfie_segmenter.tflite', 'hand_landmarker.task'].map((file) => {
+    models: ['selfie_segmenter.tflite', 'hand_landmarker.task', 'face_landmarker.task'].map((file) => {
       const data = Buffer.from(`test model: ${file}`);
       writeAsset(directory, `models/${file}`, data);
       return { file, bytes: data.length, sha256: createHash('sha256').update(data).digest('hex') };
@@ -79,7 +79,7 @@ test('package validation rejects missing action icon metadata', (t) => {
   assert.throws(() => validateBuild(directory));
 });
 
-for (const path of ['background.js', 'models/models.json', 'models/hand_landmarker.task', 'icons/veyl-128.png',
+for (const path of ['background.js', 'models/models.json', 'models/hand_landmarker.task', 'models/face_landmarker.task', 'face-landmarker-worker.js', 'icons/veyl-128.png',
   'wasm/vision_wasm_nosimd_internal.wasm', 'licenses/NOTICE.md']) {
   test(`package validation rejects a missing ${path}`, (t) => {
     const { directory } = fixture(t);
@@ -106,6 +106,15 @@ test('package validation rejects truncated models and same-size checksum corrupt
   const data = readFileSync(resolve(directory, path));
   writeAsset(directory, path, data.subarray(0, -1));
   assert.throws(() => validateBuild(directory), /Unexpected model size/);
+  data[0] ^= 0xff;
+  writeAsset(directory, path, data);
+  assert.throws(() => validateBuild(directory), /Model checksum mismatch/);
+});
+
+test('package validation rejects a corrupted face model checksum', (t) => {
+  const { directory } = fixture(t);
+  const path = 'models/face_landmarker.task';
+  const data = readFileSync(resolve(directory, path));
   data[0] ^= 0xff;
   writeAsset(directory, path, data);
   assert.throws(() => validateBuild(directory), /Model checksum mismatch/);
